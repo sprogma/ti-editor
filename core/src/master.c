@@ -1,3 +1,5 @@
+#if 0
+
 #include "master.h"
 
 int master(void) {
@@ -15,3 +17,4 @@ int master(void) {
     return 0;
 }
 
+#endif

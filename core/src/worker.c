@@ -1,3 +1,5 @@
+#if 0
+
 #include "worker.h"
 
 int worker(void) {
@@ -19,3 +21,4 @@ int worker(void) {
     return 0;
 }
 
+#endif

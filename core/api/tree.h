@@ -1,5 +1,5 @@
-#ifndef CORE_TREE_H
-#define CORE_TREE_H
+#ifndef CORE_API_TREE_H
+#define CORE_API_TREE_H
 
 typedef i64 StatisticId;
 typedef i64 StatBlobPtr;
@@ -79,4 +79,4 @@ TreeNodePtr tree_node_allocate(i64 size, i64 alignment);
 void tree_node_free(TreeNodePtr ptr, i64 size);
 void *tree_node_base_address();
 
-#endif // CORE_TREE_H
+#endif // CORE_API_TREE_H

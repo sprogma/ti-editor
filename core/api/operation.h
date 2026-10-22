@@ -1,5 +1,5 @@
-#ifndef CORE_OPERATION_H
-#define CORE_OPERATION_H
+#ifndef CORE_API_OPERATION_H
+#define CORE_API_OPERATION_H
 
 #include "types.h"
 
@@ -51,4 +51,4 @@ void init_engine(void);
 OperationId start_operation(OperationId parent, OperationTypeId type, OperationDataPtr data);
 Operation get_operation(OperationId op);
 
-#endif // CORE_OPERATION_H
+#endif // CORE_API_OPERATION_H

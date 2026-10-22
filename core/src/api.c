@@ -1,7 +1,8 @@
+#if 0
+
 #include "core.h"
 #include "master.h"
 #include "worker.h"
-
 
 OperationId start_operation(OperationId parent, OperationType type, i64 data_size, void *data) {
     operations.push_back({type, parent, data_size, data});
@@ -36,3 +37,5 @@ void release_completed_chunks(Chunk *chunks, i64 count) {
 void init_engine(void) {
     start_thread(master);
 }
+
+#endif
