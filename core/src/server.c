@@ -5,38 +5,8 @@
 
 #include <ds.h>
 #include <request.h>
+#include <completers.h>
 #include <types.h>
-
-typedef struct {
-    byte guid[16];
-} RequestGuid;
-
-typedef struct {
-    RequestGuid guid;
-    RequestType type;
-    i64 size;
-} RequestHeader;
-
-#define MAX_REQUEST_SIZE (64 * 1024)
-#define REQUEST_GUID_TTL 60000000 // 6 min
-
-typedef struct {
-    int client_id;
-    char client_name[256];
-    RequestType type;
-    i64 length;
-    i64 read;
-    char buffer[MAX_REQUEST_SIZE];
-    struct {
-        i64 bytes_sent;
-        i64 bytes_received;
-        i64 requests_sent;
-        i64 requests_received;
-        i64 unique_requests_received;
-    } metrics;
-} ClientContext;
-
-int next_client_id = 0;
 
 #define NTOHS(val) ((((val) & 0xFF00) >> 8) | (((val) & 0x00FF) << 8))
 
@@ -92,26 +62,6 @@ void get_client_name(uv_stream_t* client, char* buffer, i64 buffer_len) {
     } else {
         snprintf(buffer, buffer_len, "unsupported-stream-type");
     }
-}
-
-ClientContext *complete_connection(uv_stream_t *client) {
-    ClientContext *ctx = calloc(1, sizeof(ClientContext));
-    ctx->client_id = next_client_id++;
-    get_client_name(client, ctx->client_name, sizeof(ctx->client_name));
-    printf("Get new connection from %s\n", ctx->client_name);
-    ctx->type = RequestType_Incomplete;
-    ctx->length = sizeof(RequestHeader);
-    ctx->read = 0;
-    return ctx;
-}
-
-void complete_request(uv_stream_t *client, ClientContext *ctx) {
-    printf("Get request %lld of length %lld from %s\n", ctx->type, (long long)ctx->length, ctx->client_name);
-}
-
-static void complete_cleanup(ClientContext *ctx) {
-    // TODO: clean all structures
-    (void)ctx;
 }
 
 typedef struct {
@@ -311,7 +261,9 @@ void on_new_connection(uv_stream_t *server, int status) {
     }
 
     if (client && uv_accept(server, client) == 0) {
-        client->data = complete_connection(client);
+        char name[512];
+        get_client_name(client, name, sizeof(name));
+        client->data = complete_connection(client, name);
         uv_read_start(client, alloc_buffer, on_read);
     } else {
         if (client) {
