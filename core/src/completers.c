@@ -22,7 +22,15 @@ ClientContext *complete_connection(uv_stream_t *client, char *name) {
 }
 
 void complete_request(uv_stream_t *client, ClientContext *ctx) {
+
     printf("Get request %lld of length %lld from %s\n", ctx->type, (long long)ctx->length, ctx->client_name);
+
+    switch (ctx->type) {
+        case RequestType_PathChunk:
+            break;
+        case RequestType_PathStat:
+            break;
+    }
 }
 
 void complete_cleanup(ClientContext *ctx) {
