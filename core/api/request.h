@@ -9,7 +9,6 @@ typedef enum : i64 {
     RequestType_IgnoreRepeat = -3,
     
     RequestType_PathChunk = 1,
-    RequestType_PathStat = 2,
 
     
 } RequestType;

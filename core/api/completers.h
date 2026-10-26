@@ -39,6 +39,9 @@ ClientContext *complete_connection(uv_stream_t *client, char *name);
 // on new request
 void complete_request(uv_stream_t *client, ClientContext *ctx);
 
+// handlers
+void complete_path_chunk(uv_stream_t *client, ClientContext *ctx);
+
 // on connection closage
 void complete_cleanup(ClientContext *ctx);
 

@@ -27,8 +27,7 @@ void complete_request(uv_stream_t *client, ClientContext *ctx) {
 
     switch (ctx->type) {
         case RequestType_PathChunk:
-            break;
-        case RequestType_PathStat:
+            complete_path_chunk(client, ctx);
             break;
     }
 }
