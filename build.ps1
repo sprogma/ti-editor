@@ -7,6 +7,7 @@ $FLAGS = @(
     "-I./inc"
     "-I./external"
     "-I./core/api"
+    "-D_CRT_SECURE_NO_WARNINGS"
 )
 
 $LIBS = @(
@@ -31,7 +32,7 @@ function Build {
         }
         $nocolor = $err -replace "\x1B\[[0-9;]*[a-zA-Z]"
         [pscustomobject]@{
-            Source = $n
+            Source = $n ?? "<unknown>"
             Name = $dst
             Status = !$LASTEXITCODE
             Errors = $nocolor | sls ": error:" -AllMatches | % Matches | measure | % Count

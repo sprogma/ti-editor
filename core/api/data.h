@@ -3,6 +3,18 @@
 
 #include "stdatomic.h"
 
+typedef i64 ChunkId;
+
+#include <piece.h>
+
+typedef struct LocalChunkKeyValue {
+    ChunkId key;
+    PieceTree value;
+} LocalChunkKeyValue;
+
+#if 0
+/// OLD API
+
 typedef void *BytePtr;
 typedef void *LabelPtr;
 typedef i64 ChunkId;
@@ -63,5 +75,6 @@ enum { Chunk_DownloadPending; Chunk_DownloadCompleted; } chunk_download(ChunkId 
 void chunk_ref(ChunkId id);
 void chunk_unref(ChunkId id);
 
+#endif
 
 #endif // CORE_API_DATA_H

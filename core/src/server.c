@@ -66,7 +66,7 @@ void get_client_name(uv_stream_t* client, char* buffer, i64 buffer_len) {
 
 typedef struct {
     RequestGuid key;
-    Ticks expires;
+    Time expires;
 } GuidTableItem;
 
 GuidTableItem *guid_table;
@@ -118,7 +118,7 @@ static int queue_write(uv_stream_t *client, char *data, i64 len, i64 requests) {
     return r;
 }
 
-static void generate_guid(byte guid[16]) {
+void generate_guid(byte guid[16]) {
     static u64 counter = 0;
     u64 s = uv_hrtime()
           ^ (u64)(uintptr_t)&counter
@@ -150,8 +150,7 @@ int send_packet(uv_stream_t *client, const void *packet, i64 len) {
     return send_bytes(client, packet, len, 1);
 }
 
-int send_body(uv_stream_t *client, RequestType type,
-              const void *body, i64 body_len) {
+int send_body(uv_stream_t *client, RequestType type, const void *body, i64 body_len) {
     if (!client)                                    return UV_EINVAL;
     if (body_len < 0)                               return UV_EINVAL;
     if (body_len > 0 && !body)                      return UV_EINVAL;
@@ -206,7 +205,7 @@ void on_read(uv_stream_t* client, i64 nread, const uv_buf_t* buf) {
                 if (ctx->type == RequestType_Incomplete) {
                     RequestHeader *header = (RequestHeader *)ctx->buffer;
                     i64 index = hmgeti(guid_table, header->guid);
-                    if (index != -1 && get_ticks() < guid_table[index].expires) {
+                    if (index != -1 && get_time() < guid_table[index].expires) {
                         ctx->type = RequestType_IgnoreRepeat;
                     } else {
                         GuidTableItem item = {
@@ -224,7 +223,7 @@ void on_read(uv_stream_t* client, i64 nread, const uv_buf_t* buf) {
                     ctx->metrics.requests_received += 1;
                     if (ctx->type != RequestType_IgnoreRepeat) {
                         ctx->metrics.unique_requests_received += 1;
-                        complete_request(client, ctx);
+                        complete_request(client->data);
                     }
                     ctx->type = RequestType_Incomplete;
                     ctx->length = sizeof(RequestHeader);
@@ -274,10 +273,9 @@ void on_new_connection(uv_stream_t *server, int status) {
 
 #define BACKLOG 128
 
-int main(int argc, char** argv) {
-    init_types();
-    
+int server_run(int argc, char **argv, uv_loop_t **ploop) {
     uv_loop_t *loop = uv_default_loop();
+    *ploop = loop;
     int servers_started = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -348,4 +346,3 @@ int main(int argc, char** argv) {
 
     return uv_run(loop, UV_RUN_DEFAULT);
 }
-
