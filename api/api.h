@@ -11,17 +11,14 @@ extern "C" {
 #define NOT_REQUIRED
 // this means this method could be runned ONLY FROM FIBERS
 #define FIBER_API
+// used in code to mark external symbols
+#define API_METHOD
 
 #define STRUCT(X) typedef struct X X; struct X
-#define ENUM(X) typedef enum X X; enum X
 
 // ---- value types ----------------------------------------------------------------
 
-typedef int i32;
-typedef long long i64;
-typedef unsigned int u32;
-typedef unsigned long long u64;
-typedef char byte;
+#include <types.h>
 
 typedef u64 AnchorId;
 typedef u64 StatisticId;
@@ -112,7 +109,7 @@ STRUCT (IStatistic) {
     void (*unref)(void *args, u64 args_size, Stat *stats, u64 count);
     // TODO: make here 4 arguments instead of 5
     // [for Stat *] to bytes
-    u64 (*serialize)(void *args, u64 args_size, Stat *stat, byte *out, u64 max_size); 
+    u64 (*serialize)(void *args, u64 args_size, Stat *stat, byte *out, u64 max_size);
     // [for Stat *] from bytes
     Stat *(*deserialize)(void *args, u64 args_size, byte *data, u64 size);
 
@@ -130,6 +127,8 @@ OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
 // ---- requests ----------------------------------------------------------------
 
 typedef u64 TaskId;
+#define InvalidTaskId 0xFFFFFFFFFFFFFFFFull
+
 
 STRUCT (RequestAnchor) {
     AnchorId base;
@@ -142,11 +141,11 @@ STRUCT (RequestStat) {
     void *args;
 };
 
-ENUM (RequestInfoType) {
+typedef enum {
     RequestInfoType_Data,
     RequestInfoType_Anchor,
     RequestInfoType_Stat,
-};
+} RequestInfoType;
 
 STRUCT (RequestInfo) {
     RequestInfoType request_type;
@@ -161,7 +160,7 @@ STRUCT (RequestInfo) {
 // get data. op_id can be InvalidHandle in some cases - but that is not error.
 u64 task_get_data(TaskId id, ReferenceSegment *segs, u64 max_count);
 // safely frees remote and local segment from task_get_data
-void task_unref_segment(ReferenceSegment *segs, u64 count); 
+void task_unref_segment(ReferenceSegment *segs, u64 count);
 
 i64 task_get_anchor(TaskId id); // signed distance
 Stat *task_get_stat(TaskId id);

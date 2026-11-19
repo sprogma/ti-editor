@@ -1,5 +1,6 @@
 #ifndef DS_H
+#define DS_H
 
 #include <stb_ds.h>
 
-#endif
+#endif // DS_H
