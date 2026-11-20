@@ -1,9 +1,9 @@
 #ifndef FIBERS_IMPL_H
 #define FIBERS_IMPL_H
 
+#include "scheduler.h"
 
-#include "fibers.h"
-
+#include <bestassert.h>
 #include <api.h>
 #include <ds.h>
 
@@ -21,8 +21,13 @@ typedef u64 (*TaskFunction)(void);
 
 STRUCT (FiberInfo) {
     void *rsp;
-    u64 pending_cancellation;
+    _Atomic u64 pending_cancellation;
 };
+
+typedef enum : u64 {
+    WaitMode_None,
+    WaitMode_All,
+} WaitMode;
 
 STRUCT (WorkerContext) {
     void *rsp;
@@ -31,6 +36,9 @@ STRUCT (WorkerContext) {
     void *stack_base;
     void *stack_limit;
 #endif
+    WaitMode wait_mode;
+    TaskId *wait_array;
+    u64 wait_count;
     FiberInfo *current;
 };
 

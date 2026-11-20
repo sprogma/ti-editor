@@ -1,7 +1,7 @@
 #include "fibers_impl.h"
 
 #include <mp.h>
-#include <assert.h>
+#include <bestassert.h>
 
 static void internal_fiber_on_return(void) {
     internal_fiber_exit(&tls_worker);

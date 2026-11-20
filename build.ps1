@@ -19,15 +19,15 @@ function Format-TimeSpan {
 
 # ----------------------- OTHER FILES BUILD ---------------------
 
-$s = "$PSScriptRoot/network/fibers.s"
+$s = "$PSScriptRoot/scheduler/fibers.s"
 $d = "$PSScriptRoot/obj/fibers.s.o"
 if ((gi $s 2>$null | % LastWriteTime) -gt (gi $d 2>$null | % LastWriteTime)) {
     $start = Get-Date
     nasm -f win64 $s -o $d
     $t = Format-TimeSpan ((Get-Date) - $start)
-    Write-Host "Built network/fibers.s in $t" -Fore green
+    Write-Host "Built scheduler/fibers.s in $t" -Fore green
 } else {
-    Write-Host "skip  network/fibers.s" -Fore yellow
+    Write-Host "skip  scheduler/fibers.s" -Fore yellow
 }
 $AdditionalObjects += "$PSScriptRoot/obj/fibers.s.o"
 
@@ -39,9 +39,17 @@ $FLAGS = @(
     # "-fsanitize=address"
     "-I./utilities"
     "-I./api"
-    "-I./network"
+    "-I./scheduler"
+    "-I./operations"
     "-I./external"
     "-D_CRT_SECURE_NO_WARNINGS"
+    
+    "-Wall"
+    "-Watomic-implicit-seq-cst"
+)
+
+$LINK_FLAGS = @(
+    "-g"
 )
 
 $LIBS = @(
@@ -134,7 +142,8 @@ function Build {
         $deps = @($AdditionalObjects) + @($b | % Name)
         if (($deps | gi 2>$null | % LastWriteTime) -gt (gi "$PSScriptRoot/a.exe" 2>$null | % LastWriteTime)) {
             Write-Host "Linking" -Fore yellow
-            clang @($b | % Name) @AdditionalObjects -o "$PSScriptRoot/a.exe" @LIBS
+            $ansi = ($IsWindows ? @("-fansi-escape-codes") : @())
+            clang -fcolor-diagnostics @LINK_FLAGS @ansi @($b | % Name) @AdditionalObjects -o "$PSScriptRoot/a.exe" @LIBS | oh
             if ($LASTEXITCODE) {
                 Write-Host "Build failed:" -Fore red
                 Write-Host "Linkage failed." -Fore red

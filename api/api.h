@@ -121,7 +121,7 @@ STRUCT (IStatistic) {
 const IOperation *get_operation_type(OperationTypeId type);
 const IStatistic *get_statistic_type(StatisticId type);
 
-void get_operation(OperationId op_id, Operation *out);
+bool get_operation(OperationId op_id, Operation *out);
 OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
 
 // ---- requests ----------------------------------------------------------------
@@ -157,13 +157,21 @@ STRUCT (RequestInfo) {
 };
 
 
-// get data. op_id can be InvalidHandle in some cases - but that is not error.
-u64 task_get_data(TaskId id, ReferenceSegment *segs, u64 max_count);
-// safely frees remote and local segment from task_get_data
-void task_unref_segment(ReferenceSegment *segs, u64 count);
+STRUCT (DataTaskResult) {
+    ReferenceSegment *data;
+    i64 data_count;
+};
 
-i64 task_get_anchor(TaskId id); // signed distance
-Stat *task_get_stat(TaskId id);
+// is ready returns 1 if task was really finished. owerwice res == NULL/0
+// signed distance
+i64 task_get_anchor(TaskId id, i32 *is_ready); 
+// result of calc
+Stat *task_get_stat(TaskId id, i32 *is_ready);
+// get data. op_id can be InvalidOperation in some cases - but that is not error.
+DataTaskResult *task_get_data(TaskId id, i32 *is_ready);
+// safely frees remote and local segment from task_get_data
+void task_unref_segment(DataTaskResult *result);
+
 
 // ---- networking ----------------------------------------------------------------
 

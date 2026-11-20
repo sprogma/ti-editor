@@ -1,6 +1,8 @@
 #ifndef INC_MP_H
 #define INC_MP_H
 
+#include <stdatomic.h>
+
 #if defined(_WIN32) || defined(_WIN64)
     #define NOMINMAX
     #define NOGDI
