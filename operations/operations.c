@@ -54,7 +54,7 @@ OperationId create_operation(OperationTypeId type, void *args, u64 args_size) {
     i64 pos = hmlen(ctx.operations) - 1;
     
     assert(pos == hmgeti(ctx.operations, new_id)); // is must be true always
-    
+
     iop->create(&ctx.operations[pos].value, args, args_size);
     
     rwl_unwrite(&ctx.op_lock);
@@ -68,4 +68,18 @@ void init_operation_subsystem(u64 op_id_prefix, u64 next_op_id) {
 
     ctx.op_id_prefix = op_id_prefix;
     atomic_store_explicit(&ctx.next_operation_id, next_op_id, memory_order_relaxed);
+}
+
+void add_operation_type(OperationTypeId id, IOperation *iop) {
+    assert(iop->create);
+    assert(iop->resolve_anchor);
+    assert(iop->decompose);
+    assert(iop->next);
+    assert(iop->unref);
+    assert(iop->get_deps);
+    assert(iop->serialize);
+    assert(iop->deserialize);
+    assert(iop->create);
+    assert(iop->destroy);
+    hmput(ctx.types, id, iop);
 }

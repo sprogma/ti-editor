@@ -2,4 +2,6 @@
 *.o
 *.d
 *.pdb
+*.exp
+*.lib
 *.ilk

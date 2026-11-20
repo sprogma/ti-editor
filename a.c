@@ -9,8 +9,16 @@ int main() {
     init_task_subsystem();
     init_operation_subsystem((0x1 << 32), 0);
 
-    int res = printf("Hello\n");
+    IOperation my_op = {
+        // TODO: ...
+    };
 
-    assert(res == 3);
+    add_operation_type(1, &my_op);
+
+    OperationId res = create_operation(1, NULL, 0);
+
+    printf("OperationId = %d\n", res);
+    assert(res != InvalidOperation);
+    
     return 0;
 }
