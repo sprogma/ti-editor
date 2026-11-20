@@ -58,7 +58,7 @@ $LIBS = @(
 )
 
 function Build {
-    $f = ls -r "$PSScriptRoot/*.c" | ? {$_.FullName -notmatch "[/\\]old[/\\]"}
+    $f = ls -r "$PSScriptRoot/*.c" | ? {$_.FullName -notmatch "[/\\](old|test)[/\\]"}
     $thd = $Threads ? @{ThrottleLimit=$Threads} : @{}
     $b = $f | % @thd -parallel {$n = rvpa $_ -RelativeBasePath $using:PSScriptRoot -Relative | % { $_ -replace "^\.(/|\\)" }
         $dst = "$using:PSScriptRoot/obj/$n.o"
