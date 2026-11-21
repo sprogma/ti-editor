@@ -7,10 +7,15 @@
 _Thread_local WorkerContext tls_worker;
 
 #define GEN_MASK 0xFFFFFFFFull
+#define GEN(x) ((x) & GEN_MASK)
 
 STRUCT (Task) {
     FiberInfo *fiber;
     i64 priority;
+
+    WaitMode wait_mode;
+    TaskId *wait_array;
+    u64 wait_count;
 
     // telemetry
     _Atomic Time t_start_time;
@@ -61,6 +66,7 @@ void init_task_subsystem() {
         ctx.tasks_alloc = 32 * 1024; // TODO: dynamic reallocation, less default
         ctx.tasks_count = 0;
         ctx.tasks = malloc(sizeof(*ctx.tasks) * ctx.tasks_alloc);
+        ctx.generations = malloc(sizeof(*ctx.generations) * ctx.tasks_alloc);
 
         i64 *writeback = &ctx.free_head;
         for (i32 i = 0; i < ctx.tasks_alloc; ++i) {
@@ -144,12 +150,29 @@ TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
 
     rwl_unread(&ctx.lock);
 
+    enqueue_task(id);
+    printf("Task %lld was started\n", id);
+
     return id;
 }
 
+void stop_local_task(TaskId id, u64 code) { 
+    assert(code != 0);
+    
+    rwl_read(&ctx.lock);
 
-static FiberInfo *scheduler_next_fiber() {
+    if (ctx.generations[id >> 32] == GEN(id)) {
+        Task *task = &ctx.tasks[id >> 32];
+        atomic_store_explicit(&task->fiber->pending_cancellation, code, memory_order_relaxed);
+    }
+    
+    rwl_unread(&ctx.lock);
+}
+
+
+static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
     FiberInfo *fib = NULL;
+    TaskId id = InvalidTaskId;
 
     rwl_write(&ctx.lock);
 
@@ -158,38 +181,141 @@ static FiberInfo *scheduler_next_fiber() {
         ctx.queue_tail = (ctx.queue_tail + 1) % ctx.queue_alloc;
         ctx.queue_count--;
 
-        TaskId id = ctx.queue[pos];
+        id = ctx.queue[pos];
         ctx.queue[pos] = InvalidTaskId;
 
-        fib = ctx.tasks[id].fiber;
+        assert(ctx.generations[id >> 32] == GEN(id));
+
+        fib = ctx.tasks[id >> 32].fiber;
         
         Time now = uv_hrtime();
-        Time prev_event = atomic_exchange_explicit(&ctx.tasks[id].t_last_event_time, now, memory_order_relaxed);
-        atomic_fetch_add_explicit(&ctx.tasks[id].t_execution_wait, now - prev_event, memory_order_relaxed);
+        Time prev_event = atomic_exchange_explicit(&ctx.tasks[id >> 32].t_last_event_time, now, memory_order_relaxed);
+        atomic_fetch_add_explicit(&ctx.tasks[id >> 32].t_execution_wait, now - prev_event, memory_order_relaxed);
     }
 
     rwl_unwrite(&ctx.lock);
-    return fib;
+    
+    *out_fib = fib;
+    *out_id = id;
+}
+
+static void init_next_task(TaskId id, FiberInfo *next) {
+    assert(id != InvalidTaskId);
+    assert(next != NULL);
+    assert(tls_worker.current_id == InvalidTaskId);
+    tls_worker.wait_mode = WaitMode_None;
+    tls_worker.current_id = id;
+    tls_worker.current = next;
+}
+
+static void suspend_current_task() {
+    if (tls_worker.wait_mode == WaitMode_None) {
+        enqueue_task(tls_worker.current_id);
+    } else {
+        TaskId id = tls_worker.current_id;
+        FiberInfo *fib = tls_worker.current;
+        
+        rwl_write(&ctx.lock);
+
+        assert(ctx.generations[id >> 32] == GEN(id)); // cannot suspend dead task
+        
+        Task *task = &ctx.tasks[id >> 32];
+        task->wait_mode = tls_worker.wait_mode;
+        task->wait_array = tls_worker.wait_array;
+        task->wait_count = tls_worker.wait_count;
+        
+        i64 pending_pos = ctx.pending_count++;
+        ctx.pending[pending_pos] = id;
+        
+        rwl_unwrite(&ctx.lock);
+    }
+    tls_worker.wait_mode = WaitMode_None;
+    tls_worker.current_id = InvalidTaskId;
 }
 
 static void worker_loop(void) {
+    // entry for all fiber suspends, etc.
+    if (tls_worker.current_id != InvalidTaskId) {
+        // fiber was finished
+        printf("Task %lld was finished\n", tls_worker.current_id);
+        
+        rwl_write(&ctx.results_lock);
+        hmput(ctx.results, tls_worker.current_id, (void *)179);
+        rwl_unwrite(&ctx.results_lock);
+        
+        free_task(tls_worker.current_id);
+        tls_worker.current_id = InvalidTaskId;
+    }
     while (1) {
         // find next task
-        FiberInfo *next = scheduler_next_fiber();
-        if (next) {
-            tls_worker.wait_mode = WaitMode_None;
-            tls_worker.current = next;
+        FiberInfo *next;
+        TaskId id;
+        scheduler_next_fiber(&id, &next);
+        if (id != InvalidTaskId) {
+            init_next_task(id, next);
             internal_fiber_resume(next->rsp);
         } else {
             Time t1 = uv_hrtime();
             uv_sleep(1);
+
+            // update all pendings
+            // TODO: make this reactive-model
+
+            TaskId to_queue[16];
+            u64 to_queue_size = 0;
+
+            rwl_write(&ctx.lock);
+            i32 i = 0;
+            while (i < ctx.pending_count) {
+                TaskId id = ctx.pending[i];
+                
+                // if task is ended
+                if (ctx.generations[id >> 32] != GEN(id)) {
+                    ctx.pending[i] = ctx.pending[--ctx.pending_count];
+                    continue;
+                }
+                
+                Task *tsk = &ctx.tasks[id >> 32];
+                if (tsk->wait_mode == WaitMode_All){ 
+                    while (tsk->wait_count > 0) {
+                        TaskId dep = tsk->wait_array[0];
+                        if (ctx.generations[dep >> 32] != GEN(dep)) {
+                            tsk->wait_count--;
+                            tsk->wait_array++;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if (tsk->wait_count == 0) {
+                        ctx.pending[i] = ctx.pending[--ctx.pending_count]; 
+                        to_queue[to_queue_size++] = id;
+                        if (to_queue_size == (sizeof(to_queue)/sizeof(*to_queue))) {
+                            break;
+                        }
+                    } else {
+                        i++;
+                    }   
+                } else {
+                    assert(false);
+                }
+            }
+            rwl_unwrite(&ctx.lock);
+
+            for (u64 i = 0; i < to_queue_size; ++i) {
+                enqueue_task(to_queue[i]);
+            }
+            
             Time t2 = uv_hrtime();
             atomic_fetch_add_explicit(&ctx.t_idle, t2 - t1, memory_order_relaxed);
         }
     }
 }
 
-void task_worker() {
+void worker_thread(void *arg) {
+    // TODO: pass config via args
+    (void)arg;
+    
     u64 rsp = (u64)__builtin_frame_address(0);
     tls_worker.rsp = (void *)((rsp & ~0xFULL) - 8); // add space as for ret address
     tls_worker.loop = worker_loop;
@@ -197,42 +323,53 @@ void task_worker() {
     tls_worker.stack_base  = (void *)__readgsqword(0x08);
     tls_worker.stack_limit = (void *)__readgsqword(0x10);
 #endif
-    tls_worker.current = NULL;
+    tls_worker.wait_mode = WaitMode_None;
+    tls_worker.current_id = InvalidTaskId;
     worker_loop();
 }
 
 API_METHOD u64 wait(TaskId *ids, u64 count) {
+    FiberInfo *cur_fib = tls_worker.current;
+    bool need_switch = false;
     if (ids == NULL || count == 0) {
-        FiberInfo *f = scheduler_next_fiber();
-        if (f) {
-            internal_fiber_swap(&tls_worker.current->rsp, f->rsp);
-            return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
-        } else {
-            tls_worker.wait_mode = WaitMode_None;
-            internal_fiber_suspend(&tls_worker.current->rsp, &tls_worker);
-            return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
-        }
+        tls_worker.wait_mode = WaitMode_None;
+        suspend_current_task();
+        need_switch = true;
     }
-    rwl_read(&ctx.results_lock);
+    
+    rwl_read(&ctx.lock);
     for (u64 i = 0; i < count; ++i) {
-        if (hmgeti(ctx.results, ids[i]) == -1) {
-            rwl_unread(&ctx.results_lock);
-
-            rwl_read(&ctx.lock);
-            if (ctx.generations[ids[i] >> 32] != (ids[i] & GEN_MASK)) {
-                rwl_read(&ctx.results_lock);
-                continue;
-            }
+        if (ctx.generations[ids[i] >> 32] == GEN(ids[i])) {
             rwl_unread(&ctx.lock);
-            
+
             tls_worker.wait_mode = WaitMode_All;
             tls_worker.wait_array = ids + i;
             tls_worker.wait_count = count - i;
-            internal_fiber_suspend(&tls_worker.current->rsp, &tls_worker);
+            suspend_current_task();
+            
+            need_switch = true;
+            break;
+        }
+    }
+    if (!need_switch) {
+        rwl_unread(&ctx.lock);
+    }
+
+    if (need_switch) { 
+        // try to swap with waiting task
+        TaskId new_id;
+        FiberInfo *new_fib;
+        scheduler_next_fiber(&new_id, &new_fib);
+        if (new_id != InvalidTaskId) {
+            init_next_task(new_id, new_fib);
+            internal_fiber_swap(&cur_fib->rsp, new_fib->rsp);
+            return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
+        } else {
+            internal_fiber_suspend(&cur_fib->rsp, &tls_worker);
             return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
         }
-    }    
-    rwl_unread(&ctx.results_lock);
+    }
+    
     return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
 }
 
@@ -240,7 +377,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
 static void *task_get_result(TaskId id, i32 *is_ready) {
 
     rwl_read(&ctx.lock);
-    if (ctx.generations[id >> 32] != (id & GEN_MASK)) {
+    if (ctx.generations[id >> 32] == GEN(id)) {
         if (is_ready) *is_ready = 0;
         return NULL;
     }
@@ -250,12 +387,12 @@ static void *task_get_result(TaskId id, i32 *is_ready) {
     int pos = hmgeti(ctx.results, id);
     void *res = NULL;
     if (pos != -1) {
-        if (is_ready) *is_ready = 0;
+        if (is_ready) *is_ready = 1;
         res = ctx.results[pos].value;
         hmdel(ctx.results, id);
         free_task(id);
     } else {
-        if (is_ready) *is_ready = 1;
+        if (is_ready) *is_ready = 0;
     }
     rwl_unwrite(&ctx.results_lock);
     return res;

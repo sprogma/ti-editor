@@ -14,8 +14,6 @@
 #include <sys/mman.h>
 #endif
 
-typedef u64 (*TaskFunction)(void);
-
 // TODO: cache it from GetSystemInfo...
 #define STACK_PAGE_SIZE 4096
 
@@ -39,6 +37,7 @@ STRUCT (WorkerContext) {
     WaitMode wait_mode;
     TaskId *wait_array;
     u64 wait_count;
+    TaskId current_id;
     FiberInfo *current;
 };
 

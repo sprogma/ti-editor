@@ -188,9 +188,9 @@ STRUCT (NetworkStat) {
 
 NetworkNode network_get_self();
 u64 network_list(NetworkNode *nodes, u64 max_count);
-TaskId network_run(NetworkNode node, const RequestInfo *info);
-void network_stop(NetworkNode node, TaskId);
 void network_stat(NetworkStat *stat, NetworkNode node);
+TaskId network_run(NetworkNode node, const RequestInfo *info);
+void network_stop(TaskId, u64 cancel_code);
 
 // ---- fiber api ----------------------------------------------------------------
 
