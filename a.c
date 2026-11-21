@@ -46,6 +46,17 @@ int main() {
     // start local task
     printf("starting...\n");
     start_local_task(f1, (void *)100, 0);
+    uv_sleep(1000);
+    start_local_task(f1, (void *)100, 0);
+    uv_sleep(1000);
+    start_local_task(f1, (void *)100, 0);
+    uv_sleep(1000);
+    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)100, 0);
+    uv_sleep(1000);
+    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)100, 0);
+    uv_sleep(1000);
     start_local_task(f2, (void *)100, 0);
 
     uv_sleep(200000);

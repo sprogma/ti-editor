@@ -67,6 +67,7 @@ void init_task_subsystem() {
         ctx.tasks_count = 0;
         ctx.tasks = malloc(sizeof(*ctx.tasks) * ctx.tasks_alloc);
         ctx.generations = malloc(sizeof(*ctx.generations) * ctx.tasks_alloc);
+        memset(ctx.generations, 0, sizeof(*ctx.generations) * ctx.tasks_alloc);
 
         i64 *writeback = &ctx.free_head;
         for (i32 i = 0; i < ctx.tasks_alloc; ++i) {
@@ -109,9 +110,12 @@ static TaskId alloc_task(i64 priority) {
 }
 
 static void free_task(TaskId id) {
-    rwl_read(&ctx.lock);
-    ctx.generations[id >> 32]++;
-    rwl_unread(&ctx.lock);
+    rwl_write(&ctx.lock);
+    u64 cell = id >> 32;
+    ctx.generations[cell]++;
+    *(i64 *)&ctx.tasks[cell] = ctx.free_head;
+    ctx.free_head = cell;
+    rwl_unwrite(&ctx.lock);
 }
 
 static void enqueue_task(TaskId id) {
