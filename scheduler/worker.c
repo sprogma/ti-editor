@@ -237,19 +237,26 @@ static void suspend_current_task() {
     tls_worker.current_id = InvalidTaskId;
 }
 
+
+void internal_fiber_on_return_c(void *res) {
+    // fiber was finished
+    assert(tls_worker.current_id != InvalidTaskId);
+    
+    printf("Task %lld was finished\n", tls_worker.current_id);
+    
+    rwl_write(&ctx.results_lock);
+    hmput(ctx.results, tls_worker.current_id, res);
+    rwl_unwrite(&ctx.results_lock);
+    
+    free_task(tls_worker.current_id);
+    tls_worker.current_id = InvalidTaskId;
+    
+    internal_fiber_exit(&tls_worker);
+}
+
 static void worker_loop(void) {
+    assert(tls_worker.current_id == InvalidTaskId);
     // entry for all fiber suspends, etc.
-    if (tls_worker.current_id != InvalidTaskId) {
-        // fiber was finished
-        printf("Task %lld was finished\n", tls_worker.current_id);
-        
-        rwl_write(&ctx.results_lock);
-        hmput(ctx.results, tls_worker.current_id, (void *)179);
-        rwl_unwrite(&ctx.results_lock);
-        
-        free_task(tls_worker.current_id);
-        tls_worker.current_id = InvalidTaskId;
-    }
     while (1) {
         // find next task
         FiberInfo *next;

@@ -8,9 +8,18 @@ global internal_fiber_suspend
 global internal_fiber_exit
 global internal_fiber_swap
 global internal_fiber_start
+global internal_fiber_on_return_jump
+
+extern internal_fiber_on_return_c
+
 
 %ifidn __OUTPUT_FORMAT__, win64
 ; win x64 ABI
+
+internal_fiber_on_return_jump:
+    mov rcx, rax
+    call internal_fiber_on_return_c
+    ud2
 
 internal_fiber_resume:
     mov rsp, rcx
@@ -145,13 +154,18 @@ internal_fiber_swap:
     pop rbp
     ret
 
-; bootstrapping r12 = fn, r13 = arg; [rsp] = internal_fiber_on_return
+; bootstrapping r12 = fn, r13 = arg; [rsp] = internal_fiber_on_return_jump
 internal_fiber_start:
     mov rcx, r13
     jmp r12
 
 %else
 ; linups v abi
+
+internal_fiber_on_return_jump:
+    mov rdi, rax
+    call internal_fiber_on_return_c
+    ud2
 
 internal_fiber_resume:
     mov rsp, rdi
@@ -198,7 +212,7 @@ internal_fiber_swap:
     pop rbp
     ret
 
-; bootstrapping r12 = fn, r13 = arg; [rsp] = internal_fiber_on_return
+; bootstrapping r12 = fn, r13 = arg; [rsp] = internal_fiber_on_return_jump
 internal_fiber_start:
     mov rdi, r13
     jmp r12

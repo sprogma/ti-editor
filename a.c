@@ -6,8 +6,8 @@
 #include <operations.h>
 #include <scheduler.h>
 
-u64 f1(void) { uv_sleep(500); printf(__FUNCTION__ "!\n"); return 0; }
-u64 f2(void) {
+void *f1(void *arg) { uv_sleep(500); printf(__FUNCTION__ "(%lld)!\n", (i64)arg); return (void *)(rand() % 100); }
+void *f2(void *arg) {
     uv_sleep(250);
     printf(__FUNCTION__ " calls f1...\n");
     TaskId tsk[64];
@@ -23,7 +23,7 @@ u64 f2(void) {
         i64 res = task_get_anchor(tsk[i], &ready);
         printf(__FUNCTION__ "* from %lld -> %lld [ready = %d]...\n", tsk[i], res, ready);
     }
-    return 0;
+    return NULL;
 }
 
 int main() {
@@ -47,17 +47,17 @@ int main() {
     printf("starting...\n");
     start_local_task(f1, (void *)100, 0);
     uv_sleep(1000);
-    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)101, 0);
     uv_sleep(1000);
-    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)102, 0);
     uv_sleep(1000);
-    start_local_task(f1, (void *)100, 0);
-    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)103, 0);
+    start_local_task(f1, (void *)104, 0);
     uv_sleep(1000);
-    start_local_task(f1, (void *)100, 0);
-    start_local_task(f1, (void *)100, 0);
+    start_local_task(f1, (void *)105, 0);
+    start_local_task(f1, (void *)106, 0);
     uv_sleep(1000);
-    start_local_task(f2, (void *)100, 0);
+    start_local_task(f2, (void *)107, 0);
 
     uv_sleep(200000);
     printf("2 second passed.\n");

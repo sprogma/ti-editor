@@ -3,7 +3,7 @@
 
 #include <api.h>
 
-typedef u64 (*TaskFunction)(void);
+typedef void *(*TaskFunction)(void *);
 
 void init_task_subsystem();
 

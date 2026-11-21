@@ -3,10 +3,6 @@
 #include <mp.h>
 #include <bestassert.h>
 
-static void internal_fiber_on_return(void) {
-    internal_fiber_exit(&tls_worker);
-}
-
 static void internal_fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size, TaskFunction fn, void *arg) {
     uintptr_t top = ((uintptr_t)stack_mem + stack_size) & ~0xFULL;
     u64 *sp = (u64 *)top;
@@ -14,7 +10,7 @@ static void internal_fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size
 #ifdef _WIN32
     sp -= 4;                   // shadow space
 #endif
-    *(--sp) = (u64)internal_fiber_on_return; // ret for fn()
+    *(--sp) = (u64)internal_fiber_on_return_jump; // ret for fn()
     *(--sp) = (u64)internal_fiber_start;     // ret for fiber_resume()
 
 #ifdef _WIN32

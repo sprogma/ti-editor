@@ -49,6 +49,7 @@ i32 fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size, TaskFunction fn
 // cancel_cose must be non zero
 void fiber_cancel(FiberInfo *f, u64 cancel_code);
 
+void internal_fiber_on_return_jump(void);
 void internal_fiber_resume(void *target_rsp);
 void internal_fiber_suspend(void **save_rsp, WorkerContext *sched);
 void internal_fiber_exit(WorkerContext *sched) __attribute__((noreturn));
