@@ -385,7 +385,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
 }
 
 
-static void *task_get_result(TaskId id, i32 *is_ready) {
+static void *local_task_get_result(TaskId id, i32 *is_ready) {
 
     rwl_read(&ctx.lock);
     if (ctx.generations[id >> 32] == GEN(id)) {
@@ -409,11 +409,11 @@ static void *task_get_result(TaskId id, i32 *is_ready) {
     return res;
 }
 
-i64 task_get_anchor(TaskId id, i32 *is_ready) { return (i64)task_get_result(id, is_ready); }
-Stat *task_get_stat(TaskId id, i32 *is_ready) { return task_get_result(id, is_ready); }
-DataTaskResult *task_get_data(TaskId id, i32 *is_ready) { return task_get_result(id, is_ready); }
+i64 local_task_get_anchor(TaskId id, i32 *is_ready) { return (i64)local_task_get_result(id, is_ready); }
+Stat *local_task_get_stat(TaskId id, i32 *is_ready) { return local_task_get_result(id, is_ready); }
+DataTaskResult *local_task_get_data(TaskId id, i32 *is_ready) { return local_task_get_result(id, is_ready); }
 
-void task_unref_segment(DataTaskResult *result) {
+void local_task_unref_segment(DataTaskResult *result) {
     // TODO: group segments by type and use batching,
     //       and may be extract unref_segment(OperationId op, Segment *seg) to some function...
     Operation op;

@@ -1,10 +1,22 @@
 #ifndef API_H
 #define API_H
 
-#include <stdint.h>
-
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#ifdef _WIN32
+    #ifdef CORE_BUILD
+        #define CORE_API __declspec(dllexport)
+    #else
+        #define CORE_API __declspec(dllimport)
+    #endif
+#else
+    #ifdef CORE_BUILD
+        #define CORE_API __attribute__((visibility("default")))
+    #else
+        #define CORE_API
+    #endif
 #endif
 
 // methods marked with this could be nullptr
@@ -24,6 +36,7 @@ typedef u64 AnchorId;
 typedef u64 StatisticId;
 typedef u64 OperationId;
 typedef u64 OperationTypeId;
+typedef u64 ModuleId;
 
 #define InvalidStatistic ((StatisticId)0)
 #define InvalidOperation ((OperationId)0)
@@ -44,8 +57,8 @@ STRUCT (ReferenceRange) {
 };
 
 STRUCT (Segment) {
-    byte *data;
-    u64 count;
+    const byte *data;
+    u64 size;
 };
 
 STRUCT (ReferenceSegment) {
@@ -58,6 +71,7 @@ typedef void Stat;
 STRUCT (RangeTask) {
     union {
         ReferenceRange operation;
+        // TODO: may be use ReferenceSegment here
         struct {
             OperationId op; // will be InvalidOperation
             Segment seg;
@@ -76,6 +90,7 @@ STRUCT (Operation) {
 };
 
 STRUCT (IOperation) {
+    ModuleId module;
     // TODO: make it batch / make it iterator / fix it in any other way
     // calculates signed distance between anchors. don't requires any unrefs.
     FIBER_API i64 (*resolve_anchor)(void *self, AnchorId base, AnchorId request);
@@ -83,7 +98,7 @@ STRUCT (IOperation) {
     FIBER_API DecomposeState *(*decompose)(void *self, const Range *r);
     // TODO: make next nonblocking
     // count of items. return 0 means this is end, state is freed inside last step.
-    FIBER_API u64 (*next)(DecomposeState *state, void *items, u64 max_items);
+    FIBER_API u64 (*next)(void *self, DecomposeState *state, RangeTask *items, u64 max_items);
     // use to free Segment *immediate results from 'decompose'
     void (*unref)(void *self, Segment *segments, u64 count);
     // used to visualizate graph
@@ -103,6 +118,7 @@ STRUCT (IOperation) {
 };
 
 STRUCT (IStatistic) {
+    ModuleId module;
     // adds ref
     FIBER_API Stat *(*calc)(void *args, u64 args_size);
     // unref
@@ -118,11 +134,15 @@ STRUCT (IStatistic) {
 
 // ---- common api ----------------------------------------------------------------
 
-const IOperation *get_operation_type(OperationTypeId type);
-const IStatistic *get_statistic_type(StatisticId type);
+CORE_API const IOperation *get_operation_type(OperationTypeId type);
+CORE_API const IStatistic *get_statistic_type(StatisticId type);
 
-bool get_operation(OperationId op_id, Operation *out);
-OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
+// must be called ONLY IN 'load_module'
+CORE_API void add_operation_type(OperationTypeId id, IOperation *iop);
+CORE_API void add_statistic_type(StatisticId id, IStatistic *ist);
+
+CORE_API bool get_operation(OperationId op_id, Operation *out);
+CORE_API OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
 
 // ---- requests ----------------------------------------------------------------
 
@@ -164,13 +184,13 @@ STRUCT (DataTaskResult) {
 
 // is ready returns 1 if task was really finished. owerwice res == NULL/0
 // signed distance
-i64 task_get_anchor(TaskId id, i32 *is_ready); 
+CORE_API i64 task_get_anchor(TaskId id, i32 *is_ready); 
 // result of calc
-Stat *task_get_stat(TaskId id, i32 *is_ready);
+CORE_API Stat *task_get_stat(TaskId id, i32 *is_ready);
 // get data. op_id can be InvalidOperation in some cases - but that is not error.
-DataTaskResult *task_get_data(TaskId id, i32 *is_ready);
+CORE_API DataTaskResult *task_get_data(TaskId id, i32 *is_ready);
 // safely frees remote and local segment from task_get_data
-void task_unref_segment(DataTaskResult *result);
+CORE_API void task_unref_segment(DataTaskResult *result);
 
 
 // ---- networking ----------------------------------------------------------------
@@ -186,18 +206,42 @@ STRUCT (NetworkStat) {
     u64 free_disk; // in bytes
 };
 
-NetworkNode network_get_self();
-u64 network_list(NetworkNode *nodes, u64 max_count);
-void network_stat(NetworkStat *stat, NetworkNode node);
-TaskId network_run(NetworkNode node, const RequestInfo *info);
-void network_stop(TaskId, u64 cancel_code);
+CORE_API NetworkNode network_get_self();
+CORE_API u64 network_list(NetworkNode *nodes, u64 max_count);
+CORE_API void network_stat(NetworkStat *stat, NetworkNode node);
+CORE_API TaskId network_run(NetworkNode node, const RequestInfo *info);
+CORE_API void network_stop(TaskId, u64 cancel_code);
 
 // ---- fiber api ----------------------------------------------------------------
 
 // non zero exit code means THIS task is cancelled, and must return immediatly after releasing resources [and childs]
 // to make yield, use wait(nullptr, 0)
-FIBER_API u64 wait(TaskId *ids, u64 count);
+CORE_API FIBER_API u64 wait(TaskId *ids, u64 count);
 
+
+// ---- modules ----------------------------------------------------------------
+
+STRUCT (Module) {
+    ModuleId id;
+    const char *name;
+    const char *loaded_path;
+    u64 version;
+    // TODO: add some query interface
+};
+
+
+const Module *get_module(ModuleId id);
+
+
+// ---- configuration ----------------------------------------------------------------
+typedef struct CoreConfig CoreConfig;
+
+CORE_API CoreConfig *config_start(void);
+CORE_API void config_add_int(CoreConfig *cfg, const char *key, i64 val);
+CORE_API void config_add_float(CoreConfig *cfg, const char *key, double val);
+CORE_API void config_add_str(CoreConfig *cfg, const char *key, const char *val);
+
+CORE_API i64 init_systems(CoreConfig *cfg);
 
 #ifdef __cplusplus
 }

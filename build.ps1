@@ -1,7 +1,7 @@
 param($Threads = $null)
 
-$AdditionalObjects = @()
 mkdir obj 2>$null | Out-Null
+mkdir build 2>$null | Out-Null
 
 function Format-TimeSpan {
     param([TimeSpan]$ts)
@@ -17,66 +17,44 @@ function Format-TimeSpan {
     return $pts -join " "
 }
 
-# ----------------------- OTHER FILES BUILD ---------------------
+function Build-Target {
+    param(
+        [string]$Output,
+        [string[]]$Files,
+        [string[]]$CFlags = @(),
+        [string[]]$NasmFlags = @(),
+        [string[]]$LinkFlags = @(),
+        [string[]]$Libs = @()
+    )
 
-$s = "$PSScriptRoot/scheduler/fibers.s"
-$d = "$PSScriptRoot/obj/fibers.s.o"
-if ((gi $s 2>$null | % LastWriteTime) -gt (gi $d 2>$null | % LastWriteTime)) {
-    $start = Get-Date
-    nasm -f win64 $s -o $d
-    $t = Format-TimeSpan ((Get-Date) - $start)
-    Write-Host "Built scheduler/fibers.s in $t" -Fore green
-} else {
-    Write-Host "skip  scheduler/fibers.s" -Fore yellow
-}
-$AdditionalObjects += "$PSScriptRoot/obj/fibers.s.o"
-
-# ----------------------- C FILES BUILD ---------------------
-
-$FLAGS = @(
-    "-g"
-    "-std=gnu2y"
-    # "-fsanitize=address"
-    "-I./utilities"
-    "-I./api"
-    "-I./scheduler"
-    "-I./operations"
-    "-I./external"
-    "-D_CRT_SECURE_NO_WARNINGS"
-    
-    "-Wall"
-    "-Watomic-implicit-seq-cst"
-)
-
-$LINK_FLAGS = @(
-    "-g"
-)
-
-$LIBS = @(
-    "-luv"
-    "-Lexternal"
-)
-
-function Build {
-    $f = ls -r "$PSScriptRoot/*.c" | ? {$_.FullName -notmatch "[/\\](old|test)[/\\]"}
+    Write-Host "`n=== Building target: $Output ===" -Fore cyan
     $thd = $Threads ? @{ThrottleLimit=$Threads} : @{}
-    $b = $f | % @thd -parallel {$n = rvpa $_ -RelativeBasePath $using:PSScriptRoot -Relative | % { $_ -replace "^\.(/|\\)" }
+    
+    $b = $Files | % @thd -parallel {
+        $n = rvpa $_ -RelativeBasePath $using:PSScriptRoot -Relative | % { $_ -replace "^\.(/|\\)" }
         $dst = "$using:PSScriptRoot/obj/$n.o"
         $dep = "$using:PSScriptRoot/obj/$n.d"
+        $ext = [System.IO.Path]::GetExtension($n).ToLower()
+        
         $needBuild = $true
-        if ((Test-Path $dst) -and (Test-Path $dep)) {
+        if (Test-Path $dst) {
             $dstTime = (gi $dst).LastWriteTime
-            $rawDeps = (gc $dep -Raw) -replace "\\\r?\n", " " -replace "^.+:\s+"
-            $deps = [regex]::Split($rawDeps.Trim(), "(?<!\\)\s+") | % { $_ -replace "\\ ", " " } | ? { $_ }
-            $isUpToDate = $true
-            foreach ($d in (@($n) + $deps)) {
-                if (!(Test-Path $d) -or ((gi $d).LastWriteTime -gt $dstTime)) {
-                    $isUpToDate = $false
-                    break
+            if ($ext -eq ".s" -or $ext -eq ".asm") {
+                $needBuild = ((gi $n).LastWriteTime -gt $dstTime)
+            } elseif (Test-Path $dep) {
+                $rawDeps = (gc $dep -Raw) -replace "\\\r?\n", " " -replace "^.+:\s+"
+                $deps = [regex]::Split($rawDeps.Trim(), "(?<!\\)\s+") | % { $_ -replace "\\ ", " " } | ? { $_ }
+                $isUpToDate = $true
+                foreach ($d in (@($n) + $deps)) {
+                    if (!(Test-Path $d) -or ((gi $d).LastWriteTime -gt $dstTime)) {
+                        $isUpToDate = $false
+                        break
+                    }
                 }
+                $needBuild = !$isUpToDate
             }
-            $needBuild = !$isUpToDate
         }
+
         if (!$needBuild) {
             Write-Host "skip  $n -> obj/$n.o" -Fore yellow
             return [pscustomobject]@{
@@ -89,22 +67,30 @@ function Build {
                 Skipped   = $true
             }
         }
+
         Write-Host "build $n -> obj/$n.o" -Fore yellow
         if (!(Test-Path (Split-Path $dst))) { mkdir -Force (Split-Path $dst) | Out-Null }
         $ansi = ($IsWindows ? @("-fansi-escape-codes") : @())
-        clang @using:FLAGS -MMD -MF $dep -c $n -o $dst -fcolor-diagnostics @ansi 2>variable:err 1>variable:res
+
+        if ($ext -eq ".s" -or $ext -eq ".asm") {
+            nasm @using:NasmFlags $n -o $dst 2>variable:err 1>variable:res
+        } else {
+            clang @using:CFlags -MMD -MF $dep -c $n -o $dst -fcolor-diagnostics @ansi 2>variable:err 1>variable:res
+        }
+
         if ($res | ? { ${_}?.Trim() }) { $res | % { Write-Host $_ } }
         $nocolor = $err -replace "\x1B\[[0-9;]*[a-zA-Z]"
         [pscustomobject]@{
             Source    = $n ?? "<unknown>"
             Name      = $dst
             Status    = !$LASTEXITCODE
-            Errors    = $nocolor | sls ": error:" -AllMatches | % Matches | measure | % Count
-            Warnings  = $nocolor | sls ": warning:" -AllMatches | % Matches | measure | % Count
+            Errors    = $nocolor | sls "error:" -AllMatches | % Matches | measure | % Count
+            Warnings  = $nocolor | sls "warning:" -AllMatches | % Matches | measure | % Count
             ErrorText = $err
             Skipped   = $false
         }
     }
+
     $bad = $b | ? -Not Status
     $es = $bad | % Errors | measure -Sum | % Sum
     $ws = $bad | % Warnings | measure -Sum | % Sum
@@ -120,12 +106,8 @@ function Build {
     }
 
     Write-Host "----"
-    if ($bad) {
-        Write-Host "Build failed:" -Fore red
-    } else {
-        Write-Host "Files resolved:"
-    }
-    Write-Host "Total:      $($f.Count) files [$($b.Count) build results]"
+    Write-Host ($bad ? "Build failed:" : "Files resolved:") -Fore ($bad ? "Red" : "White")
+    Write-Host "Total:      $($Files.Count) files [$($b.Count) build results]"
     if ($bad) { Write-Host "Failed:     $($bad.Count) files" -Fore red }
     Write-Host "Succeeded:  $($b.Count - $bad.Count) files" -Fore green
     Write-Host "Errors:     $es" -Fore red
@@ -138,37 +120,81 @@ function Build {
             $n = rvpa $_.Source -RelativeBasePath $PSScriptRoot -Relative | % {$_ -replace "^\.(/|\\)"}
             Write-Host "* $n [$($_.Errors) errors, $($_.Warnings) warnings]"
         }
-    } else {
-        $deps = @($AdditionalObjects) + @($b | % Name)
-        if (($deps | gi 2>$null | % LastWriteTime) -gt (gi "$PSScriptRoot/a.exe" 2>$null | % LastWriteTime)) {
-            Write-Host "Linking" -Fore yellow
-            $ansi = ($IsWindows ? @("-fansi-escape-codes") : @())
-            clang -fcolor-diagnostics @LINK_FLAGS @ansi @($b | % Name) @AdditionalObjects -o "$PSScriptRoot/a.exe" @LIBS | oh
-            if ($LASTEXITCODE) {
-                Write-Host "Build failed:" -Fore red
-                Write-Host "Linkage failed." -Fore red
-                return $false
-            }
-        } else {
-            Write-Host "Linking skipped" -Fore yellow
+        return $false
+    }
+
+    $outPath = "$PSScriptRoot/build/$Output"
+    $objs = @($b | % Name)
+    $outTime = (gi $outPath 2>$null | % LastWriteTime)
+    $needLink = !$outTime -or (($objs | gi 2>$null | % LastWriteTime | measure -Maximum).Maximum -gt $outTime)
+
+    if ($needLink) {
+        Write-Host "Linking $Output" -Fore yellow
+        $ansi = ($IsWindows ? @("-fansi-escape-codes") : @())
+        clang -fcolor-diagnostics @LinkFlags @ansi @objs -o $outPath @Libs | oh
+        if ($LASTEXITCODE) {
+            Write-Host "Linkage of $Output failed." -Fore red
+            return $false
         }
+    } else {
+        Write-Host "Linking $Output skipped" -Fore yellow
     }
 
-    if (!$bad) {
-        Write-Host "Build succseeded" -Fore green
-    }
-
-    return !$bad
+    Write-Host "Target $Output succeeded" -Fore green
+    return $true
 }
 
+# ----------------------- CONFIGURATION ---------------------
+
+$BASE_FLAGS = @(
+    "-g"
+    "-std=gnu2y"
+    # "-fsanitize=address"
+    "-I./utilities"
+    "-I./api"
+    "-I./scheduler"
+    "-I./configuration"
+    "-I./modules"
+    "-I./network"
+    "-I./operations"
+    "-I./external"
+    "-D_CRT_SECURE_NO_WARNINGS"
+    "-Wall"
+    "-Watomic-implicit-seq-cst"
+)
+
+$NASM_FLAGS = $IsWindows ? @("-f", "win64") : @("-f", "elf64")
+
+$CoreOut    = $IsWindows ? "core.dll" : "libcore.so"
+$AppOut     = $IsWindows ? "a.exe"    : "a"
+
+$CORE_CFLAGS = $BASE_FLAGS + @("-DCORE_BUILD") + ($IsWindows ? @() : @("-fPIC", "-fvisibility=hidden"))
+$CORE_LFLAGS = @("-g", "-shared") + ($IsWindows ? @("-Wl,/IMPLIB:$PSScriptRoot/build/core.lib") : @())
+$CORE_LIBS   = @("-luv", "-Lexternal")
+
+$APP_CFLAGS  = $BASE_FLAGS
+$APP_LFLAGS  = @("-g") + ($IsWindows ? @() : @("-Wl,-rpath,`$ORIGIN"))
+$APP_LIBS    = $IsWindows ? @("$PSScriptRoot/build/core.lib") : @("-Lbuild", "-lcore")
+
+# ----------------------- EXECUTION ---------------------
 
 $t1 = Get-Date
-$res = Build
+
+$allC = ls -r "$PSScriptRoot/*.c" | ? { $_.FullName -notmatch "[/\\](old|test)[/\\]" }
+$appFiles  = @("$PSScriptRoot/a.c")
+$coreFiles = @("$PSScriptRoot/scheduler/fibers.s") + ($allC | ? { $_.FullName -ne (gi "$PSScriptRoot/a.c").FullName } | % FullName)
+
+$res = (Build-Target -Output $CoreOut -Files $coreFiles -CFlags $CORE_CFLAGS -NasmFlags $NASM_FLAGS -LinkFlags $CORE_LFLAGS -Libs $CORE_LIBS) -and
+       (Build-Target -Output $AppOut  -Files $appFiles  -CFlags $APP_CFLAGS  -LinkFlags $APP_LFLAGS  -Libs $APP_LIBS)
+
 $t2 = Get-Date
 $t = Format-TimeSpan ($t2 - $t1)
+
 if (!$res) {
     Write-Host "`n`n->`nBuild failed in $t." -Fore red
+    exit 1
 } else {
     Write-Host "`n`n->`nBuild succeeded in $t." -Fore green
-    Write-Host "see result at a.exe" -Fore green
+    Write-Host "see result at $AppOut and $CoreOut" -Fore green
 }
+
