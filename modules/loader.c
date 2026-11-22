@@ -1,6 +1,8 @@
 #include "loader.h"
 
 #include "stdlib.h"
+#include "stdio.h"
+#include "errno.h"
 #include <api.h>
 #include <mp.h>
 #include <ds.h>
@@ -39,12 +41,14 @@ i64 load_module(const char *path) {
 #ifdef _WIN32
     HMODULE handle = LoadLibraryA(path);
     if (!handle) {
+        printf("load library failed: %ld\n", (long)GetLastError());
         rwl_unwrite(&ctx.lock);
         return -2;
     }
 
     module_init_fn init_fn = (module_init_fn)(void *)GetProcAddress(handle, "load_module");
     if (!init_fn) {
+        printf("get proc address failed: %ld\n", (long)GetLastError());
         FreeLibrary(handle);
         rwl_unwrite(&ctx.lock);
         return -3;
@@ -52,6 +56,7 @@ i64 load_module(const char *path) {
 #else
     void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
+        printf("dlopen failed: %ld\n", (long)errno);
         rwl_unwrite(&ctx.lock);
         return -2;
     }
@@ -59,6 +64,7 @@ i64 load_module(const char *path) {
     dlerror();
     module_init_fn init_fn = (module_init_fn)dlsym(handle, "load_module");
     if (!init_fn) {
+        printf("ldsym failed: %ld\n", (long)errno);
         dlclose(handle);
         rwl_unwrite(&ctx.lock);
         return -3;
@@ -68,7 +74,8 @@ i64 load_module(const char *path) {
     Module *info = calloc(sizeof(*info), 1);
     info->loaded_path = path;
     i64 res = init_fn(info);
-    if (res < 0) {
+    if (res != 0) {
+        printf("init_fn returned nonzero: %lld\n", res);
 #ifdef _WIN32
         FreeLibrary(handle);
 #else
@@ -84,7 +91,7 @@ i64 load_module(const char *path) {
     hmput(ctx.modules, info->id, info);
     
     rwl_unwrite(&ctx.lock);
-    return res;
+    return 0;
 }
 
 const Module *get_module(ModuleId id) {

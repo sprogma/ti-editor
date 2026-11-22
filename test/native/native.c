@@ -1,8 +1,17 @@
 #include <api.h>
 
+#include <stdlib.h>
 #include <assert.h>
 
+#ifdef _WIN32
+    #define API __declspec(dllexport)
+#else
+    #define API
+#endif
+
 #define AbobaOpType 0xAB0BA
+
+typedef void AbobaOp;
 
 i64 aboba_resolve_anchor(void *ptr_data, AnchorId base, AnchorId request) {
     AbobaOp *self = ptr_data;
@@ -25,7 +34,7 @@ u64 aboba_next(void *ptr_data, DecomposeState *state, RangeTask *items, u64 max_
     assert(max_items > 0);
     ... [need to return 1 / 0, or change next protocol...]
     items[0].op = InvalidOperation;
-    items[0].seg.data = "aboba";
+    items[0].seg.data = (const byte *)"aboba";
     items[0].seg.size = 5;
     ...
     return 1;
@@ -48,7 +57,7 @@ u64 aboba_serialize(void *ptr_data, byte *out, u64 max_size) {
     return 0;
 }
 
-void aboba_deserialize(Operation *out, byte *out, u64 size) {
+void aboba_deserialize(Operation *out, byte *data, u64 size) {
     out->type = AbobaOpType;
 }
 
@@ -74,10 +83,11 @@ IOperation aboba_operation = {
     .global_state = NULL,
 };
 
-i64 load_module(Module *info) {
+API i64 load_module(Module *info) {
     info->id = 0xAB0BA;
     info->name = "aboba module I";
     info->version = 0;
 
     add_operation_type(AbobaOpType, &aboba_operation);
+    return 0;
 }
