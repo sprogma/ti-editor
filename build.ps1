@@ -24,7 +24,8 @@ function Build-Target {
         [string[]]$CFlags = @(),
         [string[]]$NasmFlags = @(),
         [string[]]$LinkFlags = @(),
-        [string[]]$Libs = @()
+        [string[]]$Libs = @(),
+        [scriptblock]$PostBuild = $null
     )
 
     Write-Host "`n=== Building target: $Output ===" -Fore cyan
@@ -140,6 +141,23 @@ function Build-Target {
         Write-Host "Linking $Output skipped" -Fore yellow
     }
 
+    if ($needLink -and $PostBuild) {
+        Write-Host "Executing post build steps" -Fore yellow
+        $previousPreference = $ErrorActionPreference
+        $previousNativePreference = $PSNativeCommandUseErrorActionPreference
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $true
+        try {
+            & $PostBuild
+        } catch {
+            Write-Host "Post build steps failed: $($_.Exception.Message)" -Fore yellow
+            return $false
+        } finally {
+            $ErrorActionPreference = $previousPreference
+            $PSNativeCommandUseErrorActionPreference = $previousNativePreference
+        }
+    }
+
     Write-Host "Target $Output succeeded" -Fore green
     return $true
 }
@@ -158,6 +176,7 @@ $BASE_FLAGS = @(
     "-I./network"
     "-I./operations"
     "-I./external"
+    "-I./external/msquic/include"
     "-D_CRT_SECURE_NO_WARNINGS"
     "-Wall"
     "-Watomic-implicit-seq-cst"
@@ -170,11 +189,17 @@ $AppOut     = $IsWindows ? "a.exe"    : "a"
 
 $CORE_CFLAGS = $BASE_FLAGS + @("-DCORE_BUILD") + ($IsWindows ? @() : @("-fPIC", "-fvisibility=hidden"))
 $CORE_LFLAGS = @("-g", "-shared") + ($IsWindows ? @("-Wl,/IMPLIB:$PSScriptRoot/build/core.lib") : @())
-$CORE_LIBS   = @("-luv", "-Lexternal")
+$CORE_LIBS   = @("-lmsquic", "-Lexternal/msquic/bin/x64", "-Lexternal/msquic/lib/x64")
+$CORE_POSTBUILD = {
+    cp "./external/msquic/bin/x64/msquic.dll" "./build/"
+    cp "./external/msquic/bin/x64/msquic.pdb" "./build/"
+}
 
 $APP_CFLAGS  = $BASE_FLAGS
 $APP_LFLAGS  = @("-g") + ($IsWindows ? @() : @("-Wl,-rpath,`$ORIGIN"))
 $APP_LIBS    = $IsWindows ? @("$PSScriptRoot/build/core.lib") : @("-Lbuild", "-lcore")
+
+
 
 # ----------------------- EXECUTION ---------------------
 
@@ -184,7 +209,7 @@ $allC = ls -r "$PSScriptRoot/*.c" | ? { $_.FullName -notmatch "[/\\](old|test)[/
 $appFiles  = @("$PSScriptRoot/a.c")
 $coreFiles = @("$PSScriptRoot/scheduler/fibers.s") + ($allC | ? { $_.FullName -ne (gi "$PSScriptRoot/a.c").FullName } | % FullName)
 
-$res = (Build-Target -Output $CoreOut -Files $coreFiles -CFlags $CORE_CFLAGS -NasmFlags $NASM_FLAGS -LinkFlags $CORE_LFLAGS -Libs $CORE_LIBS) -and
+$res = (Build-Target -Output $CoreOut -Files $coreFiles -CFlags $CORE_CFLAGS -NasmFlags $NASM_FLAGS -LinkFlags $CORE_LFLAGS -Libs $CORE_LIBS -PostBuild $CORE_POSTBUILD) -and
        (Build-Target -Output $AppOut  -Files $appFiles  -CFlags $APP_CFLAGS  -LinkFlags $APP_LFLAGS  -Libs $APP_LIBS)
 
 $t2 = Get-Date

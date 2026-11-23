@@ -70,7 +70,7 @@ typedef void Stat;
 
 STRUCT (RangeTask) {
     union {
-        ReferenceRange operation;
+        ReferenceRange ref;
         // TODO: may be use ReferenceSegment here
         struct {
             OperationId op; // will be InvalidOperation
@@ -94,11 +94,9 @@ STRUCT (IOperation) {
     // TODO: make it batch / make it iterator / fix it in any other way
     // calculates signed distance between anchors. don't requires any unrefs.
     FIBER_API i64 (*resolve_anchor)(void *self, AnchorId base, AnchorId request);
+    // TODO: convert decompose to iterator
     // decomposes task, also creating stats, and increasing their refcount by one.
-    FIBER_API DecomposeState *(*decompose)(void *self, const Range *r);
-    // TODO: make next nonblocking
-    // count of items. return 0 means this is end, state is freed inside last step.
-    FIBER_API u64 (*next)(void *self, DecomposeState *state, RangeTask *items, u64 max_items);
+    FIBER_API i64 (*decompose)(void *self, const Range *r, RangeTask *items, u64 max_items);
     // use to free Segment *immediate results from 'decompose'
     void (*unref)(void *self, Segment *segments, u64 count);
     // used to visualizate graph
@@ -209,7 +207,7 @@ STRUCT (NetworkStat) {
 CORE_API NetworkNode network_get_self();
 CORE_API u64 network_list(NetworkNode *nodes, u64 max_count);
 CORE_API void network_stat(NetworkStat *stat, NetworkNode node);
-CORE_API TaskId network_run(NetworkNode node, const RequestInfo *info);
+CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count);
 CORE_API void network_stop(TaskId, u64 cancel_code);
 
 // ---- fiber api ----------------------------------------------------------------

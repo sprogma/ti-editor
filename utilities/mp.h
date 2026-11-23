@@ -2,6 +2,7 @@
 #define INC_MP_H
 
 #include <stdatomic.h>
+#include <types.h>
 
 #if defined(_WIN32) || defined(_WIN64)
     #define NOMINMAX
@@ -16,6 +17,8 @@
     #define rwl_unread(l) ReleaseSRWLockShared(l)
     #define rwl_unwrite(l) ReleaseSRWLockExclusive(l)
     #define rwl_destroy(l) /* none */
+    
+    typedef HANDLE thread_t;
 #else
     #include <pthread.h>
     typedef pthread_rwlock_t rwlock;
@@ -26,6 +29,18 @@
     #define rwl_unread(l) pthread_rwlock_unlock(l)
     #define rwl_unwrite(l) pthread_rwlock_unlock(l)
     #define rwl_destroy(l) pthread_rwlock_destroy(l)
+    
+    typedef pthread_t thread_t;
 #endif
+
+typedef void (*thread_func_t)(void *);
+
+int thread_create(thread_t *t, thread_func_t func, void *arg);
+void thread_join(thread_t t);
+
+Time get_time(void);
+void mp_sleep(u64 ms);
+
+void init_mp_subsystem(void);
 
 #endif // INC_MP_H

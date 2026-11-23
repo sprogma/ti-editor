@@ -1,6 +1,5 @@
 #include "fibers_impl.h"
 
-#include <uv.h>
 #include <mp.h>
 #include <bestassert.h>
 
@@ -138,7 +137,7 @@ TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
 
     rwl_read(&ctx.lock);
 
-    Time now = uv_hrtime();
+    Time now = get_time();
 
     Task *task = &ctx.tasks[id >> 32];
     *task = (Task) {
@@ -192,7 +191,7 @@ static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
 
         fib = ctx.tasks[id >> 32].fiber;
         
-        Time now = uv_hrtime();
+        Time now = get_time();
         Time prev_event = atomic_exchange_explicit(&ctx.tasks[id >> 32].t_last_event_time, now, memory_order_relaxed);
         atomic_fetch_add_explicit(&ctx.tasks[id >> 32].t_execution_wait, now - prev_event, memory_order_relaxed);
     }
@@ -266,8 +265,8 @@ static void worker_loop(void) {
             init_next_task(id, next);
             internal_fiber_resume(next->rsp);
         } else {
-            Time t1 = uv_hrtime();
-            uv_sleep(1);
+            Time t1 = get_time();
+            mp_sleep(1);
 
             // update all pendings
             // TODO: make this reactive-model
@@ -317,7 +316,7 @@ static void worker_loop(void) {
                 enqueue_task(to_queue[i]);
             }
             
-            Time t2 = uv_hrtime();
+            Time t2 = get_time();
             atomic_fetch_add_explicit(&ctx.t_idle, t2 - t1, memory_order_relaxed);
         }
     }

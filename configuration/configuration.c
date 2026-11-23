@@ -1,17 +1,20 @@
 #include "config_impl.h"
 
 #include <bestassert.h>
-#include <uv.h>
+#include <mp.h>
 #include <api.h>
 #include <operations.h>
+#include <network.h>
 #include <scheduler.h>
 #include <loader.h>
 
 
 i64 init_systems(CoreConfig *cfg) {
     // simple init
+    init_mp_subsystem();
     init_task_subsystem();
     init_operation_subsystem((0x1 << 32), 0);
+    init_network_subsystem(cfg);
 
     // load all module
     const char **modules = get_str(cfg, "module.path");
@@ -30,10 +33,14 @@ i64 init_systems(CoreConfig *cfg) {
 
     // populate thread pools
     for (int i = 0; i < 6; ++i) {
-        uv_thread_t tid;
-        assert(uv_thread_create(&tid, worker_thread, NULL) == 0);
+        thread_t tid;
+        assert(thread_create(&tid, worker_thread, NULL) == 0);
     }
 
     config_free(cfg);
+
+
+    start_network();
+    
     return 0;
 }

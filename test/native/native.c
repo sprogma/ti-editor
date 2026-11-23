@@ -9,6 +9,8 @@
     #define API
 #endif
 
+#define AnchorBegin 1
+#define AnchorEnd 2
 #define AbobaOpType 0xAB0BA
 
 typedef void AbobaOp;
@@ -18,25 +20,27 @@ i64 aboba_resolve_anchor(void *ptr_data, AnchorId base, AnchorId request) {
     if (base == request) {
         return 0;
     } else {
-        return base == 0 ? 5 : -5;
+        return base == AnchorBegin ? 5 : -5;
     }
 }
 
-DecomposeState *aboba_decompose(void *ptr_data, const Range *r) {
-    AbobaOp *self = ptr_data;
-    DecomposeState *state = malloc(sizeof(*r));
-    *(Range *)state = *r;
-    return state;
+i64 get_pos(Position pos) {
+    if (pos.anchor == AnchorBegin) {
+        return pos.offset;
+    }
+    if (pos.anchor == AnchorEnd) {
+        return 5 + pos.offset;
+    }
+    return -1;
 }
 
-u64 aboba_next(void *ptr_data, DecomposeState *state, RangeTask *items, u64 max_items) {
+i64 aboba_decompose(void *ptr_data, const Range *range, RangeTask *items, u64 max_items) {
     AbobaOp *self = ptr_data;
     assert(max_items > 0);
-    ... [need to return 1 / 0, or change next protocol...]
+    i64 l = get_pos(range->l), r = get_pos(range->r);
     items[0].op = InvalidOperation;
-    items[0].seg.data = (const byte *)"aboba";
-    items[0].seg.size = 5;
-    ...
+    items[0].seg.data = ((const byte *)"aboba") + l;
+    items[0].seg.size = r - l;
     return 1;
 }
 
@@ -73,7 +77,6 @@ void aboba_destory(void *ptr_data) {
 IOperation aboba_operation = {
     .resolve_anchor = aboba_resolve_anchor,
     .decompose = aboba_decompose,
-    .next = aboba_next,
     .unref = aboba_unref,
     .get_deps = aboba_get_deps,
     .serialize = aboba_serialize,

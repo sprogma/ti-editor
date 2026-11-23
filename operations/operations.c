@@ -74,7 +74,6 @@ void add_operation_type(OperationTypeId id, IOperation *iop) {
     assert(iop->create);
     assert(iop->resolve_anchor);
     assert(iop->decompose);
-    assert(iop->next);
     assert(iop->unref);
     assert(iop->get_deps);
     assert(iop->serialize);
