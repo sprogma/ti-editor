@@ -7,48 +7,28 @@
 #include <string.h>
 #include <msquic.h>
 
-static const QUIC_BUFFER Alpn = { sizeof("mesh-proto") - 1, (uint8_t *)"mesh-proto" };
+#define ctx network_ctx
+
+static const QUIC_BUFFER Alpn = { sizeof("editor-mesh") - 1, (uint8_t *)"editor-mesh" };
 
 #define MAX_FRAMED_MSG_SIZE (16 * 1024 * 1024)
-
-static struct {
-    const QUIC_API_TABLE *api;
-    HQUIC registration;
-    HQUIC server_cfg;
-    HQUIC client_cfg;
-    HQUIC listener;
-    
-    net_on_message_fn on_message;
-
-    u16 local_port;
-    rwlock peers_lock;
-    peer_t **peers;
-} ctx = {
-    .peers_lock = RWLOCK_INIT
-};
 
 typedef struct {
     QUIC_BUFFER quic_buf;
     byte data[];
 } send_ctx_t;
 
-
 static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_STREAM_EVENT *event);
 
-static void register_peer(peer_t *peer) {
+static void register_peer(Peer *peer) {
     rwl_write(&ctx.peers_lock);
-    arrput(ctx.peers, peer);
+    hmput(ctx.peers, peer->id, peer);
     rwl_unwrite(&ctx.peers_lock);
 }
 
-static void unregister_peer(peer_t *peer) {
+static void unregister_peer(Peer *peer) {
     rwl_write(&ctx.peers_lock);
-    for (u64 i = 0; i < arrlen(ctx.peers); ++i) {
-        if (ctx.peers[i] == peer) {
-            arrdelswap(ctx.peers, i);
-            break;
-        }
-    }
+    hmdel(ctx.peers, peer->id);
     rwl_unwrite(&ctx.peers_lock);
 }
 
@@ -69,7 +49,7 @@ static void stream_send_raw(HQUIC stream, const void *data, u32 len, bool fin) {
 }
 
 static QUIC_STATUS QUIC_API stream_callback(HQUIC stream, void *context, QUIC_STREAM_EVENT *event) {
-    peer_t *peer = (peer_t *)context;
+    Peer *peer = (Peer *)context;
 
     switch (event->Type) {
         case QUIC_STREAM_EVENT_RECEIVE: {
@@ -119,7 +99,7 @@ void close_channel(channel_t *ch, bool graceful) {
     ctx.api->StreamShutdown(ch->stream, flags, 0);
 }
 
-void close_connection(peer_t *peer, u64 error_code) {
+void close_connection(Peer *peer, u64 error_code) {
     if (!ctx.api || !peer || !peer->conn) {
         return;
     }
@@ -128,14 +108,14 @@ void close_connection(peer_t *peer, u64 error_code) {
 }
 
 static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context, QUIC_CONNECTION_EVENT *event) {
-    peer_t *peer = (peer_t *)context;
+    Peer *peer = (Peer *)context;
 
     switch (event->Type) {
         case QUIC_CONNECTION_EVENT_CONNECTED: {
             atomic_store(&peer->is_connected, true);
             register_peer(peer);
             printf("[Net][%s] Peer connected (total peers: %td)\n",
-                   peer->is_incoming ? "IN" : "OUT", arrlen(ctx.peers));
+                   peer->is_incoming ? "IN" : "OUT", hmlen(ctx.peers));
             break;
         }
         case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED: {
@@ -177,18 +157,25 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
     return QUIC_STATUS_SUCCESS;
 }
 
+static void init_peer(Peer *peer) {
+    atomic_init(&peer->is_connected, false);
+    peer->last_stat.idle_power = 1.0;
+    peer->last_stat.free_ram = -1;
+    peer->last_stat.free_disk = -1;
+}
 
 static QUIC_STATUS QUIC_API listener_callback(HQUIC listener, void *context, QUIC_LISTENER_EVENT *event) {
     (void)listener;
     (void)context;
 
     if (event->Type == QUIC_LISTENER_EVENT_NEW_CONNECTION) {
-        peer_t *peer = calloc(1, sizeof(peer_t));
+        Peer *peer = calloc(1, sizeof(Peer));
         if (!peer) return QUIC_STATUS_OUT_OF_MEMORY;
 
         peer->conn = event->NEW_CONNECTION.Connection;
         peer->is_incoming = true;
-        atomic_init(&peer->is_connected, false);
+
+        init_peer(peer);
 
         ctx.api->SetCallbackHandler(peer->conn, (void *)connection_callback, peer);
         QUIC_STATUS status = ctx.api->ConnectionSetConfiguration(peer->conn, ctx.server_cfg);
@@ -251,6 +238,9 @@ static QUIC_STATUS init_configurations(u64 idle_timeout_ms) {
 i32 init_network_subsystem(CoreConfig *cfg) {
     QUIC_STATUS status;
     rwl_init(&ctx.peers_lock);
+
+    // TODO: use some better random and device-based id
+    ctx.self_id = rand();
 
     if (QUIC_FAILED(status = MsQuicOpen2(&ctx.api))) {
         printf("[Net] Error MsQuicOpen2: 0x%lx\n", (unsigned long)status);
@@ -323,26 +313,27 @@ void shutdown_network_subsystem(void) {
     MsQuicClose(ctx.api);
     ctx.api = NULL;
     rwl_write(&ctx.peers_lock);
-    arrfree(ctx.peers);
+    hmfree(ctx.peers);
     rwl_unwrite(&ctx.peers_lock);
     rwl_destroy(&ctx.peers_lock);
     printf("[Net] Network subsystem stopped\n");
 }
 
 
-peer_t *open_connection(const peer_addr_t *addr) {
+Peer *open_connection(const peer_addr_t *addr) {
     if (!ctx.api || !ctx.client_cfg || !addr) {
         return NULL;
     }
 
-    peer_t *peer = calloc(1, sizeof(peer_t));
+    Peer *peer = calloc(1, sizeof(Peer));
     if (!peer) {
         return NULL;
     }
 
     peer->addr = *addr;
     peer->is_incoming = false;
-    atomic_store_explicit(&peer->is_connected, false, memory_order_relaxed);
+
+    init_peer(peer);
 
     QUIC_STATUS status = ctx.api->ConnectionOpen(
         ctx.registration,
@@ -496,7 +487,7 @@ static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_S
     return QUIC_STATUS_SUCCESS;
 }
 
-channel_t *open_channel(peer_t *peer, bool is_framed) {
+channel_t *open_channel(Peer *peer, bool is_framed) {
     if (!ctx.api || !peer || !peer->conn) {
         return NULL;
     }
@@ -535,7 +526,7 @@ channel_t *open_channel(peer_t *peer, bool is_framed) {
 }
 
 // fin = true -> close our side, for one time channels / other closing
-i32 channel_send(peer_t *peer, channel_t *ch, const void *data, u32 len, bool fin) {
+i32 channel_send(Peer *peer, channel_t *ch, const void *data, u32 len, bool fin) {
     if (!ctx.api || !peer || !ch || !ch->stream || atomic_load(&ch->is_closed)) {
         return 1;
     }
@@ -577,6 +568,22 @@ i32 channel_send(peer_t *peer, channel_t *ch, const void *data, u32 len, bool fi
 }
 
 
+void fill_network_part(NetworkStat *stat, Peer *peer) {
+    QUIC_NETWORK_STATISTICS nst = { 0 };
+    u32 len = sizeof(nst);
+
+    QUIC_STATUS status = ctx.api->GetParam(
+        peer->conn,
+        QUIC_PARAM_CONN_NETWORK_STATISTICS,
+        &len,
+        &nst
+    );
+
+    if (QUIC_SUCCEEDED(status)) {
+        stat->ping = T_US(nst.SmoothedRTT);
+        stat->bandwidth = nst.Bandwidth / 8;
+    }
+}
 
 
 
@@ -604,7 +611,7 @@ i32 channel_send(peer_t *peer, channel_t *ch, const void *data, u32 len, bool fi
 
 
 
-static channel_t *get_or_open_ctrl_stream(peer_t *peer) {
+static channel_t *get_or_open_ctrl_stream(Peer *peer) {
     if (peer->ctrl_stream) {
         return peer->ctrl_stream;
     }
@@ -629,8 +636,8 @@ static void broadcast_message(const char *text) {
     }
 
     rwl_write(&ctx.peers_lock);
-    for (u64 i = 0; i < arrlen(ctx.peers); ++i) {
-        peer_t *p = ctx.peers[i];
+    for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
+        Peer *p = ctx.peers[i].value;
         if (!atomic_load(&p->is_connected)) {
             continue;
         }
@@ -643,7 +650,7 @@ static void broadcast_message(const char *text) {
     rwl_unwrite(&ctx.peers_lock);
 }
 
-static void on_chat_message(peer_t *peer, channel_t *ch, const byte *data, u32 len) {
+static void on_chat_message(Peer *peer, channel_t *ch, const byte *data, u32 len) {
     if (!peer->ctrl_stream) {
         peer->ctrl_stream = ch;
     }
@@ -686,9 +693,9 @@ void start_network(void) {
 
         if (strcmp(line, "/peers") == 0) {
             rwl_read(&ctx.peers_lock);
-            printf("[Chat] Active peers: %td\n", arrlen(ctx.peers));
-            for (u64 i = 0; i < arrlen(ctx.peers); ++i) {
-                peer_t *p = ctx.peers[i];
+            printf("[Chat] Active peers: %td\n", hmlen(ctx.peers));
+            for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
+                Peer *p = ctx.peers[i].value;
                 printf("  #%td: %s, connected=%d, ctrl_stream=%p\n",
                        i,
                        p->is_incoming ? "IN" : "OUT",
@@ -725,61 +732,8 @@ void start_network(void) {
     }
 
     rwl_read(&ctx.peers_lock);
-    for (u64 i = 0; i < arrlen(ctx.peers); ++i) {
-        close_connection(ctx.peers[i], 0);
+    for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
+        close_connection(ctx.peers[i].value, 0);
     }
     rwl_unread(&ctx.peers_lock);
 }
-
-
-
-
-// TODO: impl this:
-
-
-
-
-// #include <uv.h>
-// #include <ds.h>
-// #include <mp.h>
-// #include <api.h>
-// #include <bestassert.h>
-// 
-// NetworkNode network_get_self() {
-//     
-// }
-// 
-// u64 network_list(NetworkNode *nodes, u64 max_count) {
-//     
-// }
-// 
-// void network_stat(NetworkStat *stat, NetworkNode node) {
-// 
-// }
-// 
-// void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count) {
-//     
-// }
-// 
-// void network_stop(TaskId, u64 cancel_code) {
-//     
-// }
-// 
-// 
-// // is ready returns 1 if task was really finished. owerwice res == NULL/0
-// // signed distance
-// i64 task_get_anchor(TaskId id, i32 *is_ready) {
-//     
-// }
-// // result of calc
-// Stat *task_get_stat(TaskId id, i32 *is_ready) {
-//     
-// }
-// // get data. op_id can be InvalidOperation in some cases - but that is not error.
-// DataTaskResult *task_get_data(TaskId id, i32 *is_ready) {
-//     
-// }
-// // safely frees remote and local segment from task_get_data
-// void task_unref_segment(DataTaskResult *result) {
-//     
-// }

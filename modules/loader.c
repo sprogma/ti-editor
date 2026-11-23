@@ -21,7 +21,7 @@ STRUCT (ModuleKey) {
     Module *value;
 };
 
-struct {
+static struct {
     rwlock lock;
 
     ModuleKey *modules;

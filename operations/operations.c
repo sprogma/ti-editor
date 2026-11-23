@@ -1,3 +1,5 @@
+#include "operations.h"
+
 #include <api.h>
 #include <ds.h>
 #include <mp.h>

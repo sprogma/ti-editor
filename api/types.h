@@ -8,6 +8,10 @@ typedef unsigned short int u16;
 typedef unsigned long long u64;
 typedef unsigned char byte;
 
-typedef u64 Time;
+#define T_MIN(x) ((x) * 60000000000ull)
+#define T_SEC(x) ((x) * 1000000000ull)
+#define T_MS(x) ((x) * 1000000ull)
+#define T_US(x) ((x) * 1000ull)
+typedef u64 Time; // nanoseconds
 
 #endif

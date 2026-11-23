@@ -197,6 +197,10 @@ static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
     }
 
     rwl_unwrite(&ctx.lock);
+
+    if (id != InvalidTaskId) {
+        printf("task %lld was scheduled\n", id);
+    }
     
     *out_fib = fib;
     *out_id = id;
@@ -389,6 +393,7 @@ static void *local_task_get_result(TaskId id, i32 *is_ready) {
     rwl_read(&ctx.lock);
     if (ctx.generations[id >> 32] == GEN(id)) {
         if (is_ready) *is_ready = 0;
+        rwl_unread(&ctx.lock);
         return NULL;
     }
     rwl_unread(&ctx.lock);
@@ -412,9 +417,9 @@ i64 local_task_get_anchor(TaskId id, i32 *is_ready) { return (i64)local_task_get
 Stat *local_task_get_stat(TaskId id, i32 *is_ready) { return local_task_get_result(id, is_ready); }
 DataTaskResult *local_task_get_data(TaskId id, i32 *is_ready) { return local_task_get_result(id, is_ready); }
 
+// TODO: group segments by type and use batching,
+//       and may be extract unref_segment(OperationId op, Segment *seg) to some function...
 void local_task_unref_segment(DataTaskResult *result) {
-    // TODO: group segments by type and use batching,
-    //       and may be extract unref_segment(OperationId op, Segment *seg) to some function...
     Operation op;
     for (i64 i = 0; i < result->data_count; ++i) {
         if (result->data[i].op != InvalidOperation) {
@@ -422,7 +427,7 @@ void local_task_unref_segment(DataTaskResult *result) {
                 abort();
             }
             const IOperation *iop = get_operation_type(op.type);
-            iop->unref(op.self, &result->data[i].segment, 1);
+            iop->unref(op.self, &result->data[i].seg, 1);
         }
     }
 }

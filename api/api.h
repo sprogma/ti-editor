@@ -53,7 +53,7 @@ STRUCT (Range) {
 
 STRUCT (ReferenceRange) {
     OperationId op;
-    struct Range range;
+    Range range;
 };
 
 STRUCT (Segment) {
@@ -63,7 +63,7 @@ STRUCT (Segment) {
 
 STRUCT (ReferenceSegment) {
     OperationId op;
-    Segment segment;
+    Segment seg;
 };
 
 typedef void Stat;
@@ -96,7 +96,7 @@ STRUCT (IOperation) {
     FIBER_API i64 (*resolve_anchor)(void *self, AnchorId base, AnchorId request);
     // TODO: convert decompose to iterator
     // decomposes task, also creating stats, and increasing their refcount by one.
-    FIBER_API i64 (*decompose)(void *self, const Range *r, RangeTask *items, u64 max_items);
+    FIBER_API u64 (*decompose)(void *self, const Range *r, RangeTask *items, u64 max_items);
     // use to free Segment *immediate results from 'decompose'
     void (*unref)(void *self, Segment *segments, u64 count);
     // used to visualizate graph
@@ -119,6 +119,7 @@ STRUCT (IStatistic) {
     ModuleId module;
     // adds ref
     FIBER_API Stat *(*calc)(void *args, u64 args_size);
+    // TODO: may be remove void *args, u64 args_size from this function...
     // unref
     void (*unref)(void *args, u64 args_size, Stat *stats, u64 count);
     // TODO: make here 4 arguments instead of 5
@@ -149,6 +150,7 @@ typedef u64 TaskId;
 
 
 STRUCT (RequestAnchor) {
+    OperationId op;
     AnchorId base;
     AnchorId request;
 };
@@ -198,8 +200,8 @@ typedef u64 NetworkNode;
 STRUCT (NetworkStat) {
     // if field is "< 0" that means no data available
     double idle_power; // in ~cpu cores
-    double ping; // in seconds
-    double bandwidth; // in bytes per second
+    Time ping;
+    u64 bandwidth; // in BYTES per second [!]
     u64 free_ram; // in bytes
     u64 free_disk; // in bytes
 };
@@ -208,7 +210,7 @@ CORE_API NetworkNode network_get_self();
 CORE_API u64 network_list(NetworkNode *nodes, u64 max_count);
 CORE_API void network_stat(NetworkStat *stat, NetworkNode node);
 CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count);
-CORE_API void network_stop(TaskId, u64 cancel_code);
+CORE_API void network_stop(TaskId id, u64 cancel_code);
 
 // ---- fiber api ----------------------------------------------------------------
 

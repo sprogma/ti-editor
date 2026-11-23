@@ -16,7 +16,7 @@ i64 init_systems(CoreConfig *cfg) {
     init_operation_subsystem((0x1 << 32), 0);
     init_network_subsystem(cfg);
 
-    // load all module
+    // load all modules
     const char **modules = get_str(cfg, "module.path");
     for (int i = 0; i < arrlen(modules); ++i) {
         printf("loading module from <%s>\n", modules[i]);
@@ -25,22 +25,18 @@ i64 init_systems(CoreConfig *cfg) {
         }
     }
 
-    // fill operation & statistic types
-    IOperation my_op = {
-        // TODO: ...
-    };
-    // add_operation_type(1, &my_op);
-
     // populate thread pools
     for (int i = 0; i < 6; ++i) {
         thread_t tid;
-        assert(thread_create(&tid, worker_thread, NULL) == 0);
+        i32 res = thread_create(&tid, worker_thread, NULL);
+        assert(res == 0);
     }
 
     config_free(cfg);
 
-
-    start_network();
+    if (arrlen(get_int(cfg, "network.run"))) {
+        start_network();
+    }
     
     return 0;
 }
