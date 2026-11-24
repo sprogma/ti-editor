@@ -2,6 +2,7 @@
 *.o
 *.d
 *.pdb
+*.dll
 *.exp
 *.lib
 *.ilk

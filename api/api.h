@@ -42,6 +42,9 @@ typedef u64 ModuleId;
 #define InvalidOperation ((OperationId)0)
 #define InvalidOperationType ((OperationTypeId)0)
 
+#define OPERATION_PREFIX_SHIFT 40
+#define OPERATION_PREFIX_MASK (-(1 << OPERATION_PREFIX_SHIFT))
+
 STRUCT (Position) {
     AnchorId anchor;
     i64 offset;
@@ -140,8 +143,14 @@ CORE_API const IStatistic *get_statistic_type(StatisticId type);
 CORE_API void add_operation_type(OperationTypeId id, IOperation *iop);
 CORE_API void add_statistic_type(StatisticId id, IStatistic *ist);
 
-CORE_API bool get_operation(OperationId op_id, Operation *out);
+#define GET_OPERATION_SUCCESS 0
+#define GET_OPERATION_INVALID_ID 1
+#define GET_OPERATION_RETRY 2
+
+CORE_API i32 get_operation(OperationId op_id, Operation *out);
+CORE_API FIBER_API i32 fiber_get_operation(OperationId op_id, Operation *out); // blocking, !canNOT! return GET_OPERATION_RETRY
 CORE_API OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
+CORE_API void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, u64 size);
 
 // ---- requests ----------------------------------------------------------------
 

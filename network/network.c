@@ -1,4 +1,4 @@
-#include "network.h"
+#include "network_impl.h"
 
 #include <ds.h>
 #include <mp.h>
@@ -37,8 +37,8 @@ void network_stat(NetworkStat *stat, NetworkNode node) {
 
 static void get_data_req(OperationId op_id, Range *rg, ReferenceSegment **res_arr) {
     Operation op;
-    bool res = get_operation(op_id, &op);
-    assert(res);
+    i32 res = fiber_get_operation(op_id, &op);
+    assert(res == GET_OPERATION_SUCCESS);
     const IOperation* iop = get_operation_type(op.type);
     assert(iop);
 
@@ -97,8 +97,8 @@ static void *local_request_completer(void *arg) {
             free(rq);
             
             Operation op;
-            bool res = get_operation(op_id, &op);
-            assert(res);
+            i32 res = fiber_get_operation(op_id, &op);
+            assert(res == GET_OPERATION_SUCCESS);
             const IOperation* iop = get_operation_type(op.type);
             assert(iop);
             return (void *)iop->resolve_anchor(op.self, base, request);
@@ -111,7 +111,7 @@ static void *local_request_completer(void *arg) {
         } break;
         default: {
             printf("Unknown request type\n");
-            assert(false);
+            panic();
             // free(rq);
         } break;
     }
@@ -127,7 +127,7 @@ void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 in
         }
     } else {
         printf("Network tasks are unsupported\n");
-        assert(false);
+        panic();
     }
 }
 
@@ -136,7 +136,7 @@ void network_stop(TaskId id, u64 cancel_code) {
         stop_local_task(id, cancel_code);
     } else {
         printf("Network tasks are unsupported\n");
-        assert(false);
+        panic();
     }
 }
 
@@ -147,7 +147,7 @@ i64 task_get_anchor(TaskId id, i32 *is_ready) {
         return local_task_get_anchor(id, is_ready);
     } else {
         printf("Network tasks are unsupported\n");
-        assert(false);
+        panic();
     }
 }
 // result of calc
@@ -156,7 +156,7 @@ Stat *task_get_stat(TaskId id, i32 *is_ready) {
         return local_task_get_stat(id, is_ready);
     } else {
         printf("Network tasks are unsupported\n");
-        assert(false);
+        panic();
     }
 }
 // get data. op_id can be InvalidOperation in some cases - but that is not error.
@@ -165,7 +165,7 @@ DataTaskResult *task_get_data(TaskId id, i32 *is_ready) {
         return local_task_get_data(id, is_ready);
     } else {
         printf("Network tasks are unsupported\n");
-        assert(false);
+        panic();
     }
 }
 // safely frees remote and local segment from task_get_data
@@ -181,3 +181,4 @@ void task_unref_segment(DataTaskResult *result) {
         }
     }
 }
+

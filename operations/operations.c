@@ -30,14 +30,29 @@ const IOperation *get_operation_type(OperationTypeId type) {
     return hmget_ts(ctx.types, type, temp);
 }
 
-bool get_operation(OperationId op_id, Operation *out) {
+i32 get_operation(OperationId op_id, Operation *out) {
     rwl_read(&ctx.op_lock);
     i64 pos = hmgeti(ctx.operations, op_id);
     if (pos != -1) {
         *out = ctx.operations[pos].value;
     }
     rwl_unread(&ctx.op_lock);
-    return pos != -1;
+    if (pos == -1) {
+        // need to check if operation exists on other nodes
+        // TODO: start network request to find this OperationId
+        return GET_OPERATION_RETRY;
+    }
+    return pos != -1 ? GET_OPERATION_SUCCESS : GET_OPERATION_INVALID_ID;
+}
+
+i32 fiber_get_operation(OperationId op_id, Operation *out) {
+    // TODO: make some way to hook on network getting for operation
+    i32 res = get_operation(op_id, out);
+    while (res == GET_OPERATION_RETRY) {
+        wait(NULL, 0);
+        res = get_operation(op_id, out);
+    }
+    return res;
 }
 
 static OperationId allocate_operation_id() {
@@ -46,29 +61,43 @@ static OperationId allocate_operation_id() {
 
 OperationId create_operation(OperationTypeId type, void *args, u64 args_size) {
     const IOperation *iop = get_operation_type(type);
-    if (iop == NULL) return InvalidOperation;
+    assert(iop);
 
     OperationId new_id = allocate_operation_id();
 
+    Operation op;
+    iop->create(&op, args, args_size);
+
     rwl_write(&ctx.op_lock);
 
-    hmput(ctx.operations, new_id, (Operation){});
-    i64 pos = hmlen(ctx.operations) - 1;
-    
-    assert(pos == hmgeti(ctx.operations, new_id)); // is must be true always
-
-    iop->create(&ctx.operations[pos].value, args, args_size);
+    hmput(ctx.operations, new_id, op);
     
     rwl_unwrite(&ctx.op_lock);
 
     return new_id;
 }
 
+void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, u64 size) {
+    const IOperation *iop = get_operation_type(type);
+    assert(iop);
+
+    Operation op;
+    iop->deserialize(&op, data, size);
+
+    rwl_write(&ctx.op_lock);
+
+    hmput(ctx.operations, op_id, op);
+    
+    rwl_unwrite(&ctx.op_lock);
+}
+
 void init_operation_subsystem(u64 op_id_prefix, u64 next_op_id) {
     assert(op_id_prefix != 0 || next_op_id != 0); // 0 = InvalidOperation
+    assert(((op_id_prefix << OPERATION_PREFIX_SHIFT) >> OPERATION_PREFIX_SHIFT) == op_id_prefix);
+    
     rwl_init(&ctx.op_lock);
 
-    ctx.op_id_prefix = op_id_prefix;
+    ctx.op_id_prefix = op_id_prefix << OPERATION_PREFIX_SHIFT;
     atomic_store_explicit(&ctx.next_operation_id, next_op_id, memory_order_relaxed);
 }
 

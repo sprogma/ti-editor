@@ -13,7 +13,7 @@ i64 init_systems(CoreConfig *cfg) {
     // simple init
     init_mp_subsystem();
     init_task_subsystem();
-    init_operation_subsystem((0x1 << 32), 0);
+    init_operation_subsystem(0x1, 0);
     init_network_subsystem(cfg);
 
     // load all modules
@@ -32,11 +32,12 @@ i64 init_systems(CoreConfig *cfg) {
         assert(res == 0);
     }
 
-    config_free(cfg);
-
     if (arrlen(get_int(cfg, "network.run"))) {
+        printf("Running network...");
         start_network();
     }
+
+    config_free(cfg);
     
     return 0;
 }

@@ -207,7 +207,7 @@ $APP_LIBS    = $IsWindows ? @("$PSScriptRoot/build/core.lib") : @("-Lbuild", "-l
 $t1 = Get-Date
 
 $allC = ls -r "$PSScriptRoot/*.c" | ? { $_.FullName -notmatch "[/\\](old|test)[/\\]" }
-$appFiles  = @("$PSScriptRoot/a.c")
+$appFiles  = @("$PSScriptRoot/a.c", "$PSScriptRoot/utilities/mp.c")
 $coreFiles = @("$PSScriptRoot/scheduler/fibers.s") + ($allC | ? { $_.FullName -ne (gi "$PSScriptRoot/a.c").FullName } | % FullName)
 
 $res = (Build-Target -Output $CoreOut -Files $coreFiles -CFlags $CORE_CFLAGS -NasmFlags $NASM_FLAGS -LinkFlags $CORE_LFLAGS -Libs $CORE_LIBS -PostBuild $CORE_POSTBUILD) -and

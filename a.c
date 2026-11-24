@@ -4,6 +4,7 @@
 
 #define BESTASSERT_IMPLEMENTATION
 #include <bestassert.h>
+#include <mp.h>
 
 #include <api.h>
 
@@ -21,14 +22,25 @@ int main(int argc, char **argv) {
     }
     init_systems(cfg);
 
+    mp_sleep(T_SEC(1));
+
+    NetworkNode peers[128];
+    u64 peers_count = network_list(peers, sizeof(peers)/sizeof(*peers));
+
+    printf("CONNECTED TO %lld:\n", peers_count);
+    for (u64 i = 0; i < peers_count; ++i) {
+        printf("peer[%lld] = id:%lld\n", i, peers[i]);
+    }
+    printf("\n");
+
     OperationId opid = create_operation(0xAB0BA, NULL, 0);
     assert(opid != InvalidOperation);
 
-    printf("opid = %lld", opid);
+    printf("opid = %lld\n", opid);
 
     Operation op;
-    bool res2 = get_operation(opid, &op);
-    assert(res2);
+    i32 res2 = get_operation(opid, &op);
+    assert(res2 == GET_OPERATION_SUCCESS);
     const IOperation *iop = get_operation_type(op.type);
     assert(iop);
     

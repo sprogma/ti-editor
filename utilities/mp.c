@@ -19,7 +19,8 @@ void thread_join(thread_t t) {
     CloseHandle(t);
 }
 
-void mp_sleep(u64 ms) {
+void mp_sleep(Time t) {
+    u64 ms = t / 1000000;
     assert(ms < UINT32_MAX);
     Sleep(ms);
 }
@@ -58,10 +59,10 @@ void thread_join(thread_t t) {
     pthread_join(t, NULL);
 }
 
-void mp_sleep(u64 ms) {
+void mp_sleep(u64 t) {
     struct timespec req, rem;
-    req.tv_sec  = (time_t)(ms / 1000ULL);
-    req.tv_nsec = (long)((ms % 1000ULL) * 1000000ULL);
+    req.tv_sec  = t / 1000000000;
+    req.tv_nsec = t % 1000000000;
     while (nanosleep(&req, &rem) == -1) {
         if (errno != EINTR) {
             break;

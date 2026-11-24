@@ -49,6 +49,16 @@ bestassert_action_t bestassert_handle(
         }                                                                                     \
     } while (0)
 
+#define BESTPANIC()                                                                           \
+    do {                                                                                      \
+        bestassert_action_t _ba_act = bestassert_handle(                                      \
+            __FILE__, __LINE__, __PRETTY_FUNCTION__,                                          \
+            "<panic>", 1, NULL, 1);                                                           \
+        if (_ba_act == BESTASSERT_ACTION_TERMINATE)      exit(3);                             \
+        puts("Unable to continue from panic");                                                \
+        exit(3);                                                                              \
+    } while (0)
+
 #ifdef assert
     #undef assert
 #endif
@@ -56,6 +66,15 @@ bestassert_action_t bestassert_handle(
     #define assert(expr) ((void)0)
 #else
     #define assert(expr) BESTASSERT(expr)
+#endif
+
+#ifdef panic
+    #undef panic
+#endif
+#ifdef NDEBUG
+    #define panic() __builtin_unreachable();
+#else
+    #define panic() BESTPANIC()
 #endif
 
 #ifdef BESTASSERT_IMPLEMENTATION
@@ -433,7 +452,7 @@ bestassert_action_t bestassert_handle(
     printf(BA_RED "========================================================================================\n" BA_RESET);
     
     int allow_continue      = !is_fatal;
-    int allow_ignore_always = (signal_name == NULL);
+    int allow_ignore_always = !is_fatal;
 
     bestassert_action_t act;
 
@@ -521,7 +540,13 @@ static void ba_posix_signal(int signum, siginfo_t *info, void *ctx)
     bestassert_action_t act = bestassert_handle(
         "<signal>", signum, "<signal handler>",
         NULL, 1, name, fatal);
-
+    if (act == BESTASSERT_ACTION_IGNORE_ALWAYS) {
+        struct sigaction ign;
+        memset(&ign, 0, sizeof(ign));
+        ign.sa_handler = SIG_IGN;
+        sigaction(signum, &ign, NULL);
+        return;
+    }
     if (act == BESTASSERT_ACTION_TERMINATE) _exit(3);
 }
 #endif

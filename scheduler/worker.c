@@ -98,7 +98,7 @@ static TaskId alloc_task(i64 priority) {
     i64 cell = ctx.free_head;
     if (cell == -1) {
         // TODO: realloc ctx.tasks up
-        abort();
+        panic();
     }
     ctx.free_head = *(i64 *)&ctx.tasks[cell];
     i64 gen = ctx.generations[cell];
@@ -122,7 +122,7 @@ static void enqueue_task(TaskId id) {
 
     if (ctx.queue_count == ctx.queue_alloc) {
         // TODO: realloc queue up
-        abort();
+        panic();
     }
     ctx.queue_count++;
     i64 pos = ctx.queue_head;
@@ -311,7 +311,7 @@ static void worker_loop(void) {
                         i++;
                     }   
                 } else {
-                    assert(false);
+                    panic();
                 }
             }
             rwl_unwrite(&ctx.lock);
@@ -423,8 +423,8 @@ void local_task_unref_segment(DataTaskResult *result) {
     Operation op;
     for (i64 i = 0; i < result->data_count; ++i) {
         if (result->data[i].op != InvalidOperation) {
-            if (!get_operation(result->data[i].op, &op)) {
-                abort();
+            if (get_operation(result->data[i].op, &op) != GET_OPERATION_SUCCESS) {
+                panic();
             }
             const IOperation *iop = get_operation_type(op.type);
             iop->unref(op.self, &result->data[i].seg, 1);
