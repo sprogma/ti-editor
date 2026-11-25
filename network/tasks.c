@@ -163,6 +163,7 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
 static void init_peer(Peer *peer) {
     atomic_init(&peer->refcount, 1);
     atomic_init(&peer->is_connected, false);
+    peer->id = rand(); // TODO: better random / ip based value
     peer->last_stat.idle_power = 1.0;
     peer->last_stat.free_ram = -1;
     peer->last_stat.free_disk = -1;

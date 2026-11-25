@@ -37,7 +37,7 @@ void bloom_add(u64 *filter, u64 filter_size, u64 filter_arity, OperationId id) {
     for (u32 k = 0; k < filter_arity; ++k) {
         u32 index = ((u64)(low + k * high) * filter_size) >> 32;
         u32 cell = index / 64, bit = index % 64;
-        filter[cell] |= 1 << bit;
+        filter[cell] |= 1ull << bit;
     }
 }
 
@@ -52,9 +52,9 @@ void download_operation(OperationId op_id) {
     i64 count = hmlen(peers);
     arrsetcap(peers, count);
     for (i64 i = 0; i < count; ++i) {
-        peers[i] = ctx.peers[i].value;
-        if (ref_peer(peers[i])) {
-            arrput(peers, peers[i]);
+        Peer *p = ctx.peers[i].value;
+        if (ref_peer(p)) {
+            arrput(peers, p);
         }
     }
     rwl_unread(&ctx.peers_lock);
