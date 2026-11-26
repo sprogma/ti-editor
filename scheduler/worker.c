@@ -69,7 +69,7 @@ void init_task_subsystem() {
         memset(ctx.generations, 0, sizeof(*ctx.generations) * ctx.tasks_alloc);
 
         i64 *writeback = &ctx.free_head;
-        for (i32 i = 0; i < ctx.tasks_alloc; ++i) {
+        for (i64 i = 0; i < ctx.tasks_alloc; ++i) {
             *writeback = i;
             writeback = (i64 *)&ctx.tasks[i];
         }
@@ -96,11 +96,13 @@ static TaskId alloc_task(i64 priority) {
     rwl_write(&ctx.lock);
 
     i64 cell = ctx.free_head;
+    assert(cell < ctx.tasks_alloc);
     if (cell == -1) {
         // TODO: realloc ctx.tasks up
         panic();
     }
     ctx.free_head = *(i64 *)&ctx.tasks[cell];
+    assert(ctx.free_head < ctx.tasks_alloc);
     i64 gen = ctx.generations[cell];
 
     rwl_unwrite(&ctx.lock);
@@ -110,10 +112,12 @@ static TaskId alloc_task(i64 priority) {
 
 static void free_task(TaskId id) {
     rwl_write(&ctx.lock);
-    u64 cell = id >> 32;
+    u64 cell = (u64)id >> 32ull;
+    assert(cell < ctx.tasks_alloc);
     ctx.generations[cell]++;
     *(i64 *)&ctx.tasks[cell] = ctx.free_head;
     ctx.free_head = cell;
+    assert(ctx.free_head < ctx.tasks_alloc);
     rwl_unwrite(&ctx.lock);
 }
 

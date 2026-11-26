@@ -3,6 +3,7 @@
 #include <api.h>
 #include <ds.h>
 #include <mp.h>
+#include <network.h>
 #include <bestassert.h>
 
 STRUCT (TypeRegistryEntry) {
@@ -30,28 +31,37 @@ const IOperation *get_operation_type(OperationTypeId type) {
     return hmget_ts(ctx.types, type, temp);
 }
 
-i32 get_operation(OperationId op_id, Operation *out) {
+i32 get_operation_no_load(OperationId op_id, Operation *out) {
     rwl_read(&ctx.op_lock);
     i64 pos = hmgeti(ctx.operations, op_id);
     if (pos != -1) {
         *out = ctx.operations[pos].value;
     }
     rwl_unread(&ctx.op_lock);
-    if (pos == -1) {
-        // need to check if operation exists on other nodes
-        // TODO: start network request to find this OperationId
+    return pos != -1 ? GET_OPERATION_SUCCESS : GET_OPERATION_RETRY;
+}
+
+i32 get_operation(OperationId op_id, Operation *out) {
+    i32 res = get_operation_no_load(op_id, out);
+    if (res == GET_OPERATION_RETRY) {
+        request_operation(op_id);
         return GET_OPERATION_RETRY;
     }
-    return pos != -1 ? GET_OPERATION_SUCCESS : GET_OPERATION_INVALID_ID;
+    return res;
 }
 
 i32 fiber_get_operation(OperationId op_id, Operation *out) {
     // TODO: make some way to hook on network getting for operation
     i32 res = get_operation(op_id, out);
     while (res == GET_OPERATION_RETRY) {
-        wait(NULL, 0);
+        printf("oh, retrying...\n");
+        // wait(NULL, 0);
+        mp_sleep(T_MS(100));
+        printf("from wait, retrying...\n");
         res = get_operation(op_id, out);
+        printf("another check...\n");
     }
+    printf("res! %d\n", res);
     return res;
 }
 
@@ -78,6 +88,13 @@ OperationId create_operation(OperationTypeId type, void *args, u64 args_size) {
 }
 
 void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, u64 size) {
+    rwl_read(&ctx.op_lock);
+    i64 res = hmgeti(ctx.operations, op_id);
+    rwl_unread(&ctx.op_lock);
+    if (res != -1) {
+        return;
+    }
+    
     const IOperation *iop = get_operation_type(type);
     assert(iop);
 
@@ -86,9 +103,16 @@ void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, 
 
     rwl_write(&ctx.op_lock);
 
-    hmput(ctx.operations, op_id, op);
+    res = hmgeti(ctx.operations, op_id);
+    if (res == -1) { 
+        hmput(ctx.operations, op_id, op);
+    }
     
     rwl_unwrite(&ctx.op_lock);
+
+    if (res != -1) {
+        iop->destroy(op.self);
+    }
 }
 
 void init_operation_subsystem(u64 op_id_prefix, u64 next_op_id) {

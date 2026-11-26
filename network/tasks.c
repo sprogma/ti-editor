@@ -2,10 +2,13 @@
 #include <config_impl.h>
 #include <mp.h>
 #include <ds.h>
+#include <bestassert.h>
+#include <random.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <msquic.h>
+
 
 #define ctx network_ctx
 
@@ -19,6 +22,17 @@ typedef struct {
 } send_ctx_t;
 
 static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_STREAM_EVENT *event);
+
+Peer *get_peer(NetworkNode id) {
+    Peer *res = NULL;
+    rwl_read(&ctx.peers_lock);
+    i64 pos = hmgeti(ctx.peers, id);
+    if (pos != -1 && ref_peer(ctx.peers[pos].value)) {
+        res = ctx.peers[pos].value;
+    }
+    rwl_unread(&ctx.peers_lock);
+    return res;
+}
 
 static void register_peer(Peer *peer) {
     rwl_write(&ctx.peers_lock);
@@ -82,7 +96,7 @@ static QUIC_STATUS QUIC_API stream_callback(HQUIC stream, void *context, QUIC_ST
 }
 
 // graceful -> wait for 100% data received (FIN)
-void close_channel(channel_t *ch, bool graceful) {
+void close_channel(Channel *ch, bool graceful) {
     if (!ctx.api || !ch || !ch->stream) {
         return;
     }
@@ -113,16 +127,26 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
     switch (event->Type) {
         case QUIC_CONNECTION_EVENT_CONNECTED: {
             atomic_store(&peer->is_connected, true);
-            register_peer(peer);
-            printf("[Net][%s] Peer connected (total peers: %td)\n",
-                   peer->is_incoming ? "IN" : "OUT", hmlen(ctx.peers));
+            
+            if (!peer->is_incoming) {
+                Channel *ch = open_channel(peer, true);
+                if (!ch) {
+                    close_connection(peer, 1);
+                    break;
+                }
+                atomic_store_explicit(&peer->ctrl_stream, ch, memory_order_release);
+                
+                ch->is_handshake_pending = true;
+                channel_send(ch, &ctx.self_id, sizeof(ctx.self_id), false);
+            }
             break;
         }
+
         case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED: {
             if (!ref_peer(peer)) {
                 return QUIC_STATUS_ABORTED;
             }
-            channel_t *ch = calloc(1, sizeof(channel_t));
+            Channel *ch = calloc(1, sizeof(Channel));
             if (!ch) {
                 unref_peer(peer);
                 return QUIC_STATUS_OUT_OF_MEMORY;
@@ -133,10 +157,22 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
             ch->is_framed = true;
             atomic_init(&ch->is_closed, false);
             atomic_init(&ch->refcount, 1);
+            
+            if (peer->is_incoming) {
+                Channel *expected = NULL;
+                if (atomic_compare_exchange_strong(&peer->ctrl_stream, &expected, ch)) {
+                    ref_channel(ch);
+                    
+                    ch->is_handshake_pending = true;
+                    channel_send(ch, &ctx.self_id, sizeof(ctx.self_id), false);
+                }
+            }
 
             ctx.api->SetCallbackHandler(ch->stream, (void *)channel_callback, ch);
             break;
         }
+
+
         case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
             printf("[Net][%s] Transport shutdown: 0x%lx\n",
                    peer->is_incoming ? "IN" : "OUT",
@@ -144,7 +180,12 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
             break;
         }
         case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
-            printf("[Net][%s] Connection closed\n", peer->is_incoming ? "IN" : "OUT");
+            atomic_store(&peer->is_connected, false);
+            unregister_peer(peer);
+            Channel *ctrl = atomic_exchange(&peer->ctrl_stream, NULL);
+            if (ctrl) {
+                unref_channel(ctrl);
+            }
             unref_peer(peer);
             break;
         }
@@ -163,10 +204,16 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
 static void init_peer(Peer *peer) {
     atomic_init(&peer->refcount, 1);
     atomic_init(&peer->is_connected, false);
-    peer->id = rand(); // TODO: better random / ip based value
+    random_bytes(&peer->id, sizeof(peer->id));
     peer->last_stat.idle_power = 1.0;
     peer->last_stat.free_ram = -1;
     peer->last_stat.free_disk = -1;
+
+    for (i32 i = 0; i < max_hops; ++i) {
+        peer->abf[i].filter = calloc(1, abf_size / 64);
+        peer->abf[i].second_buffer = calloc(1, abf_size / 64);
+        peer->abf[i].last_rebuild = 0;
+    }
 }
 
 static QUIC_STATUS QUIC_API listener_callback(HQUIC listener, void *context, QUIC_LISTENER_EVENT *event) {
@@ -244,8 +291,8 @@ i32 init_network_subsystem(CoreConfig *cfg) {
     QUIC_STATUS status;
     rwl_init(&ctx.peers_lock);
 
-    // TODO: use some better random and device-based id
-    ctx.self_id = rand();
+    // TODO: use some device-based id?
+    random_bytes(&ctx.self_id, sizeof(ctx.self_id));
 
     if (QUIC_FAILED(status = MsQuicOpen2(&ctx.api))) {
         printf("[Net] Error MsQuicOpen2: 0x%lx\n", (unsigned long)status);
@@ -397,10 +444,10 @@ void net_set_message_handler(net_on_message_fn handler) {
     ctx.on_message = handler;
 }
 
-static void process_incoming_bytes(channel_t *ch, const byte *data, u32 len) {
+static void process_incoming_bytes(Channel *ch, const byte *data, u32 len) {
     if (!ch->is_framed) {
         if (ctx.on_message) {
-            ctx.on_message(ch->peer, ch, data, len);
+            ctx.on_message(ch, data, len);
         }
         return;
     }
@@ -430,10 +477,19 @@ static void process_incoming_bytes(channel_t *ch, const byte *data, u32 len) {
         }
 
         const byte *payload = ch->rx_buf + ch->rx_offset + sizeof(u32);
-        if (ctx.on_message) {
-            ctx.on_message(ch->peer, ch, payload, msg_len);
-        }
 
+        if (ch->is_handshake_pending) {
+            assert(msg_len == sizeof(ch->peer->id));
+
+            u64 old_id = ch->peer->id;
+            memcpy(&ch->peer->id, payload, sizeof(ch->peer->id));
+            printf("Peer %lld get id -> %lld\n", old_id, ch->peer->id);
+            ch->is_handshake_pending = false;
+            register_peer(ch->peer);
+        } else if (ctx.on_message) {
+            ctx.on_message(ch, payload, msg_len);
+        }
+        
         ch->rx_offset += sizeof(u32) + msg_len;
     }
 
@@ -449,7 +505,7 @@ static void process_incoming_bytes(channel_t *ch, const byte *data, u32 len) {
 }
 
 static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_STREAM_EVENT *event) {
-    channel_t *ch = (channel_t *)context;
+    Channel *ch = (Channel *)context;
 
     switch (event->Type) {
         case QUIC_STREAM_EVENT_RECEIVE: {
@@ -487,7 +543,7 @@ static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_S
     return QUIC_STATUS_SUCCESS;
 }
 
-channel_t *open_channel(Peer *peer, bool is_framed) {
+Channel *open_channel(Peer *peer, bool is_framed) {
     if (!ctx.api || !peer || !peer->conn) {
         return NULL;
     }
@@ -496,7 +552,7 @@ channel_t *open_channel(Peer *peer, bool is_framed) {
         return NULL;
     }
     
-    channel_t *ch = calloc(1, sizeof(channel_t));
+    Channel *ch = calloc(1, sizeof(Channel));
     if (!ch) {
         unref_peer(peer);
         return NULL;
@@ -532,8 +588,12 @@ channel_t *open_channel(Peer *peer, bool is_framed) {
 }
 
 // fin = true -> close our side, for one time channels / other closing
-i32 channel_send(Peer *peer, channel_t *ch, const void *data, u32 len, bool fin) {
-    if (!ctx.api || !peer || !ch) {
+i32 channel_send(Channel *ch, const void *data, u32 len, bool finalizate) {
+    if (!ctx.api || !ch) {
+        return 1;
+    }
+    Peer *peer = ch->peer;
+    if (!peer) {
         return 1;
     }
     if (len > 0 && !data) {
@@ -547,8 +607,7 @@ i32 channel_send(Peer *peer, channel_t *ch, const void *data, u32 len, bool fin)
     u32 header_size = ch->is_framed ? sizeof(u32) : 0;
     u32 total_size  = header_size + len;
 
-    // [send_ctx_t][optional u32 len][data]
-    send_ctx_t *sctx = malloc(sizeof(send_ctx_t) + total_size);
+    send_ctx_t *sctx = malloc(sizeof(*sctx) + total_size);
     if (!sctx) {
         unref_channel(ch);
         return 1;
@@ -567,7 +626,7 @@ i32 channel_send(Peer *peer, channel_t *ch, const void *data, u32 len, bool fin)
     sctx->quic_buf.Buffer = (uint8_t *)sctx->data;
     sctx->quic_buf.Length = total_size;
 
-    QUIC_SEND_FLAGS flags = fin ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
+    QUIC_SEND_FLAGS flags = finalizate ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
     QUIC_STATUS status = ctx.api->StreamSend(ch->stream, &sctx->quic_buf, 1, flags, sctx);
     
     unref_channel(ch);
@@ -623,6 +682,10 @@ void unref_peer(Peer *peer) {
         } else {
             printf("Free peer ???NAT???\n");
         }
+        if (atomic_load(&peer->ctrl_stream)) {
+            unref_channel(peer->ctrl_stream);
+            atomic_store_explicit(&peer->ctrl_stream, NULL, memory_order_relaxed);
+        }
         // TODO: free peer
         // TODO: before freeing we need to implement ref/unref in all places where peer is used, from begining to it's end...        
         if (atomic_load(&peer->is_connected)) {
@@ -637,7 +700,7 @@ void unref_peer(Peer *peer) {
     }
 }
 
-bool ref_channel(channel_t *ch) { // return false -> channel was closed
+bool ref_channel(Channel *ch) { // return false -> channel was closed
     if (!ch) return false;
     int count = atomic_load(&ch->refcount);
     while (count > 0) {
@@ -651,7 +714,7 @@ bool ref_channel(channel_t *ch) { // return false -> channel was closed
     return false;
 }
 
-void unref_channel(channel_t *ch) {
+void unref_channel(Channel *ch) {
     if (!ch) return;
     if (atomic_fetch_sub_explicit(&ch->refcount, 1, memory_order_release) == 1) {
         atomic_thread_fence(memory_order_acquire);
@@ -673,86 +736,49 @@ void unref_channel(channel_t *ch) {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-static channel_t *get_or_open_ctrl_stream(Peer *peer) {
-    if (peer->ctrl_stream) {
-        return peer->ctrl_stream;
-    }
-
-    channel_t *ch = open_channel(peer, true);
-    if (ch) {
-        peer->ctrl_stream = ch;
-    }
-    return ch;
+Channel *get_control_channel(Peer *peer) {
+    if (!peer) return NULL;
+    return atomic_load_explicit(&peer->ctrl_stream, memory_order_acquire);
 }
 
-static void broadcast_message(const char *text) {
-    char payload[1024];
-    int written = snprintf(payload, sizeof(payload), "[%u]< %s", ctx.local_port, text);
-    if (written <= 0) {
-        return;
-    }
-
-    u32 len = (u32)written;
-    if (len >= sizeof(payload)) {
-        len = sizeof(payload) - 1;
-    }
-
-    rwl_write(&ctx.peers_lock);
-    for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
-        Peer *p = ctx.peers[i].value;
-        if (!atomic_load(&p->is_connected)) {
-            continue;
-        }
-
-        channel_t *ch = get_or_open_ctrl_stream(p);
-        if (ch) {
-            channel_send(p, ch, payload, len, false);
-        }
-    }
-    rwl_unwrite(&ctx.peers_lock);
+Channel *get_control_channel_by_id(NetworkNode id) {
+    Peer *peer = get_peer(id);
+    if (!peer) return NULL;
+    return get_control_channel(peer);
 }
 
-static void on_chat_message(Peer *peer, channel_t *ch, const byte *data, u32 len) {
-    if (!peer->ctrl_stream) {
-        peer->ctrl_stream = ch;
-    }
 
-    printf("\n%.*s\n> ", (int)len, (const char *)data);
-    fflush(stdout);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void start_network(void) {
-    net_set_message_handler(on_chat_message);
+    net_set_message_handler(on_incoming_message);
 
     printf("[Chat] Node ready on UDP port %u.\n", ctx.local_port);
     printf("Commands:\n");
     printf("  /connect <port>  - connect to 127.0.0.1:<port>\n");
     printf("  /peers           - show connected peers count\n");
+    printf("  /abobaop         - create new aboba op\n");
+    printf("  /read <id>       - read text from op\n");
     printf("  /quit            - disconnect all and exit\n");
-    printf("  <any text>       - broadcast message to all peers via ctrl_stream\n\n");
 
     char line[1024];
     while (true) {
@@ -776,6 +802,42 @@ void start_network(void) {
             break;
         }
 
+        if (strcmp(line, "/abobaop") == 0) {
+            OperationId opid = create_operation(0xAB0BA, NULL, 0);
+            assert(opid != InvalidOperation);
+            printf("new operation id = %lld\n", opid);
+            continue;
+        }
+
+        if (strncmp(line, "/read ", 6) == 0) {
+            OperationId opid = atoll(line + 6);
+
+            RequestInfo rq[1] = {
+                {
+                    .request_type = RequestInfoType_Data,
+                    .data = {
+                        .op = opid,
+                        .range = {{1, 0}, {2, 0}},
+                    },
+                },
+            };
+            TaskId tsk[1];
+            network_run(network_get_self(), tsk, rq, 1);
+            assert(tsk[0] != InvalidTaskId);
+            printf("Tasks runned\n");
+            DataTaskResult *d0, *d2;
+            i64 a1;
+            int is_ready;
+            printf("wait for d0\n");
+            do { d0 = task_get_data(tsk[0], &is_ready); mp_sleep(T_MS(10)); } while (!is_ready);
+            printf("all data collected\n");
+            for (int i = 0; i < d0->data_count; ++i) {
+                printf("Task0[%d] = <%.*s> from op=%lld\n", i, (int)d0->data[i].seg.size, (char *)d0->data[i].seg.data, d0->data[i].op);
+            }
+            task_unref_segment(d0);
+            continue;
+        }
+        
         if (strcmp(line, "/peers") == 0) {
             rwl_read(&ctx.peers_lock);
             printf("[Chat] Active peers: %td\n", hmlen(ctx.peers));
@@ -813,7 +875,7 @@ void start_network(void) {
             continue;
         }
 
-        broadcast_message(line);
+        printf("Unknown command\n");
     }
 
     rwl_read(&ctx.peers_lock);

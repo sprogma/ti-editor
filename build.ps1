@@ -181,6 +181,8 @@ $BASE_FLAGS = @(
     "-DQUIC_API_ENABLE_PREVIEW_FEATURES=1"
     "-Wall"
     "-Watomic-implicit-seq-cst"
+    "-fms-extensions"
+    "-Wno-microsoft-anon-tag"
 )
 
 $NASM_FLAGS = $IsWindows ? @("-f", "win64") : @("-f", "elf64")

@@ -41,15 +41,25 @@ void bloom_add(u64 *filter, u64 filter_size, u64 filter_arity, OperationId id) {
     }
 }
 
-#define max_hops 5
-#define abf_size 1024
-#define abf_arity 3
+void request_operation(OperationId op_id) { 
+    
+    rwl_write(&ctx.operation_lock);
+    i64 pos = hmgeti(ctx.operation_events, op_id);
+    if (pos == -1) {
+        hmput(ctx.operation_events, op_id, NULL);
+        pos = hmlen(ctx.operation_events) - 1;
+    }
+    arrput(ctx.operation_events[pos].value, (OperationEvent){.target = ctx.self_id});
+    rwl_unwrite(&ctx.operation_lock);
+                
+    send_request_operation(op_id);
+}
 
-void download_operation(OperationId op_id) { 
+void send_request_operation(OperationId op_id) { 
     // find peer which is responsible
     Peer **peers = NULL;
     rwl_read(&ctx.peers_lock);
-    i64 count = hmlen(peers);
+    i64 count = hmlen(ctx.peers);
     arrsetcap(peers, count);
     for (i64 i = 0; i < count; ++i) {
         Peer *p = ctx.peers[i].value;
@@ -60,6 +70,10 @@ void download_operation(OperationId op_id) {
     rwl_unread(&ctx.peers_lock);
 
     count = arrlen(peers);
+    if (count == 0) {
+        printf("request_operation failed: no peers\n");
+        return;
+    }
     
     // work with peers
     i32 *hops = NULL;
@@ -89,15 +103,38 @@ void download_operation(OperationId op_id) {
     arrsetlen(peers, optimal);
     arrfree(hops);
 
+    i64 send_peers = 0;
+
+    RequestGetOperationById req = {
+        .request_type = GET_OPERATION_BY_ID,
+        .op_id = op_id,
+    };
+
     for (i64 i = 0; i < optimal; ++i) {
         if (peers[i]) {
             // TODO: send request via control stream
+            Channel *control = get_control_channel(peers[i]);
+            if (control == NULL) {
+                continue;
+            }
+            if (channel_send(control, &req, sizeof(req), false) == 0) {
+                send_peers++;
+            }
         }
+    }
+
+    if (send_peers == 0) {
+        // TODO: repeat request in another peers
+        panic();
     }
 
     for (i64 i = 0; i < optimal; ++i) {
         unref_peer(peers[i]);
     }
     arrfree(peers);
+}
+
+void build_operation(OperationTypeId tid, OperationId op_id, void *data, u64 data_size) {
+    deserialize_operation(tid, op_id, data, data_size);    
 }
 

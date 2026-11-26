@@ -36,8 +36,10 @@ void network_stat(NetworkStat *stat, NetworkNode node) {
 }
 
 static void get_data_req(OperationId op_id, Range *rg, ReferenceSegment **res_arr) {
+    printf("Calling fiber_get_operation...\n");
     Operation op;
     i32 res = fiber_get_operation(op_id, &op);
+    printf("fiber_get_operation returned %lld\n", res);
     assert(res == GET_OPERATION_SUCCESS);
     const IOperation* iop = get_operation_type(op.type);
     assert(iop);

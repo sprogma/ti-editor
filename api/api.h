@@ -110,7 +110,7 @@ STRUCT (IOperation) {
     void (*deserialize)(Operation* out, byte *data, u64 size);
     // from args
     void (*create)(Operation* out, void *args, u64 args_size);
-    // to delete operation
+    // to free operation
     void (*destroy)(void *self);
     // TODO: add virtual decompose, which will return only ReferenceRange, without any refcount increase
     // NOT_REQUIRED Iterator(ReferenceRange) (*vdecompose)(const Range *r);
@@ -144,10 +144,10 @@ CORE_API void add_operation_type(OperationTypeId id, IOperation *iop);
 CORE_API void add_statistic_type(StatisticId id, IStatistic *ist);
 
 #define GET_OPERATION_SUCCESS 0
-#define GET_OPERATION_INVALID_ID 1
-#define GET_OPERATION_RETRY 2
+#define GET_OPERATION_RETRY 1
 
 CORE_API i32 get_operation(OperationId op_id, Operation *out);
+CORE_API i32 get_operation_no_load(OperationId op_id, Operation *out);
 CORE_API FIBER_API i32 fiber_get_operation(OperationId op_id, Operation *out); // blocking, !canNOT! return GET_OPERATION_RETRY
 CORE_API OperationId create_operation(OperationTypeId type, void *args, u64 args_size);
 CORE_API void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, u64 size);
