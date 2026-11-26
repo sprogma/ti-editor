@@ -4,6 +4,7 @@
 #include <mp.h>
 #include <api.h>
 #include <bestassert.h>
+#include <random.h>
 #include <scheduler.h>
 
 #define ctx network_ctx
@@ -21,8 +22,6 @@ void net_log(const char *format, ...) {
     fflush(stdout);
 }
 
-
-
 void on_incoming_message(Channel *ch, const byte *data, u32 len) {
     Peer *peer = ch->peer;
 
@@ -34,6 +33,10 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
     switch (header->request_type) {
         case GET_OPERATION_BY_ID: {
             RequestGetOperationById *msg = (void *)data;
+            if (has_or_remember_guid(msg->guid)) {
+                return;
+            }
+            
             net_log("%s:GET_OPERATION_BY_ID id=%llu", v, msg->op_id);
             // check if operation exists locally
             Operation op;
@@ -54,6 +57,7 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
                     assert(used == buffer_size - sizeof(*ans));
                 }
                 ans->request_type = GET_OPERATION_BY_ID | ANSWER_MASK,
+                random_bytes(&ans->guid, sizeof(ans->guid));
                 ans->tid = op.type,
                 ans->op_id = msg->op_id,
                 ans->data_size = used;
@@ -80,11 +84,15 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
                 arrput(ctx.operation_events[pos].value, (OperationEvent){.target = peer->id});
                 rwl_unwrite(&ctx.operation_lock);
                 net_log("%s:GET_OPERATION_BY_ID id=%llu [rerequest it]", v, msg->op_id);
-                send_request_operation(msg->op_id);
+                send_request_operation(msg->op_id, msg->guid.value);
             }
         } break;
         case GET_OPERATION_BY_ID | ANSWER_MASK: {
-            AnswerGetOperationById *msg = (void *)data;
+            AnswerGetOperationById *msg = (void *)data;            
+            if (has_or_remember_guid(msg->guid)) {
+                return;
+            }
+            
             net_log("%s:GET_OPERATION_BY_ID:ANSWER type=%llu id=%llu size=%llu", v, msg->tid, msg->op_id, msg->data_size);
             OperationEvent *events;
             

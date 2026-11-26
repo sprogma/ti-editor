@@ -4,6 +4,7 @@
 #include <mp.h>
 #include <api.h>
 #include <bestassert.h>
+#include <random.h>
 #include <scheduler.h>
 
 #define ctx network_ctx
@@ -51,11 +52,13 @@ void request_operation(OperationId op_id) {
     }
     arrput(ctx.operation_events[pos].value, (OperationEvent){.target = ctx.self_id});
     rwl_unwrite(&ctx.operation_lock);
-                
-    send_request_operation(op_id);
+
+    Guid guid;
+    random_bytes(&guid, sizeof(guid));
+    send_request_operation(op_id, guid.value);
 }
 
-void send_request_operation(OperationId op_id) { 
+void send_request_operation(OperationId op_id, byte guid[16]) { 
     // find peer which is responsible
     Peer **peers = NULL;
     rwl_read(&ctx.peers_lock);
@@ -109,6 +112,8 @@ void send_request_operation(OperationId op_id) {
         .request_type = GET_OPERATION_BY_ID,
         .op_id = op_id,
     };
+
+    memcpy(req.guid.value, guid, sizeof(req.guid));
 
     for (i64 i = 0; i < optimal; ++i) {
         if (peers[i]) {

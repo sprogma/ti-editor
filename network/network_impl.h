@@ -110,6 +110,20 @@ extern struct NetworkContext {
         OperationEvent *value;
     } *operation_events;
     rwlock operation_lock;
+
+    // guids
+    rwlock guid_lock;    
+    struct GuidKey {
+        Guid key;
+    } *guid_set;
+    struct GuidTimedKey {
+        Guid guid;
+        Time expires;
+    } *guid_buffer;
+    u64 guid_buffer_tail;
+    u64 guid_buffer_head;
+    u64 guid_buffer_size;
+    Time guid_expiration_period;
     
 } network_ctx;
 
@@ -134,8 +148,9 @@ Channel *open_channel(Peer *peer, bool is_framed);
 void build_operation(OperationTypeId tid, OperationId op_id, void *data, u64 data_size);
 Peer *get_peer(NetworkNode id);
 void on_incoming_message(Channel *ch, const byte *data, u32 len);
-void send_request_operation(OperationId op_id);
+void send_request_operation(OperationId op_id, byte guid[16]);
 
+bool has_or_remember_guid(Guid value); // return true if exists
 
 bool ref_peer(Peer *peer);
 void unref_peer(Peer *peer);

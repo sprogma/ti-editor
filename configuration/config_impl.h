@@ -13,4 +13,8 @@ i64 *get_int(CoreConfig *cfg, const char *key);
 double *get_float(CoreConfig *cfg, const char *key);
 const char **get_str(CoreConfig *cfg, const char *key);
 
+i64 get_one_int(CoreConfig *cfg, const char *key, i64 def);
+double get_one_float(CoreConfig *cfg, const char *key, double def);
+const char *get_one_str(CoreConfig *cfg, const char *key, const char *def);
+
 #endif // CONFIG_IMPL_H

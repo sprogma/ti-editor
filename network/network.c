@@ -36,10 +36,8 @@ void network_stat(NetworkStat *stat, NetworkNode node) {
 }
 
 static void get_data_req(OperationId op_id, Range *rg, ReferenceSegment **res_arr) {
-    printf("Calling fiber_get_operation...\n");
     Operation op;
     i32 res = fiber_get_operation(op_id, &op);
-    printf("fiber_get_operation returned %lld\n", res);
     assert(res == GET_OPERATION_SUCCESS);
     const IOperation* iop = get_operation_type(op.type);
     assert(iop);
@@ -106,7 +104,7 @@ static void *local_request_completer(void *arg) {
             return (void *)iop->resolve_anchor(op.self, base, request);
         } break;
         case RequestInfoType_Stat: {
-            IStatistic *stat = get_statistic_type(rq->stat.type);
+            const IStatistic *stat = get_statistic_type(rq->stat.type);
             assert(stat);
             
             return stat->calc(rq->stat.args, rq->stat.args_size);
@@ -184,3 +182,47 @@ void task_unref_segment(DataTaskResult *result) {
     }
 }
 
+bool has_or_remember_guid(Guid guid) {
+    rwl_write(&ctx.guid_lock);
+    Time now = get_time();
+    
+    i64 len = ctx.guid_buffer_size;
+    if (len != 0) {
+        i64 tail = ctx.guid_buffer_tail % len;
+        while (ctx.guid_buffer_tail < ctx.guid_buffer_head && ctx.guid_buffer[tail].expires < now) {
+            hmdel(ctx.guid_set, ctx.guid_buffer[tail].guid);
+            tail = tail + 1 >= len ? 0 : tail + 1;
+            ctx.guid_buffer_tail++;
+        }
+    }
+
+    i64 res = hmgeti(ctx.guid_set, guid);
+    if (res == -1) {
+        hmputs(ctx.guid_set, (struct GuidKey){guid});
+        
+        // reallocate buffer
+        if (ctx.guid_buffer_head - ctx.guid_buffer_tail >= len) {
+            i64 new_len = len == 0 ? 1024 : len * 2;
+            void *new_buf = malloc(new_len * sizeof(*ctx.guid_buffer));
+            i64 tail_idx = len == 0 ? 0 : ctx.guid_buffer_tail % len;
+            i64 first_part = len - tail_idx;
+            memcpy(new_buf, ctx.guid_buffer + tail_idx, first_part * sizeof(*ctx.guid_buffer));
+            if (tail_idx > 0) {
+                memcpy((char *)new_buf + first_part * sizeof(*ctx.guid_buffer), ctx.guid_buffer, tail_idx * sizeof(*ctx.guid_buffer));
+            }
+            free(ctx.guid_buffer);
+            ctx.guid_buffer = new_buf;
+            ctx.guid_buffer_size = new_len;
+            ctx.guid_buffer_tail = 0;
+            ctx.guid_buffer_head = len;
+        }
+        assert(ctx.guid_buffer_size != 0);
+        i64 head = ctx.guid_buffer_head % ctx.guid_buffer_size;
+        ctx.guid_buffer[head].expires = now + ctx.guid_expiration_period;
+        ctx.guid_buffer[head].guid = guid;
+        ctx.guid_buffer_head++;
+    }
+    
+    rwl_unwrite(&ctx.guid_lock);
+    return res != -1;
+}

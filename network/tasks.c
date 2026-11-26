@@ -289,7 +289,20 @@ static QUIC_STATUS init_configurations(u64 idle_timeout_ms) {
 
 i32 init_network_subsystem(CoreConfig *cfg) {
     QUIC_STATUS status;
+
+    // init context from config
     rwl_init(&ctx.peers_lock);
+
+    ctx.operation_events = NULL;
+    rwl_init(&ctx.operation_lock);
+    
+    ctx.guid_set = NULL;
+    ctx.guid_buffer = NULL;
+    ctx.guid_buffer_tail = 0;
+    ctx.guid_buffer_head = 0;
+    ctx.guid_buffer_size = 0;
+    ctx.guid_expiration_period = T_MS(get_one_int(cfg, "net.guid_expiration_ms", 10000));
+    rwl_init(&ctx.guid_lock);
 
     // TODO: use some device-based id?
     random_bytes(&ctx.self_id, sizeof(ctx.self_id));

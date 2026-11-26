@@ -101,3 +101,17 @@ const char **get_str(CoreConfig *cfg, const char *key) {
     ptrdiff_t idx = shgeti(cfg->str, key);
     return (idx != -1) ? cfg->str[idx].value : NULL;
 }
+
+i64 get_one_int(CoreConfig *cfg, const char *key, i64 def) {
+    i64 *res = get_int(cfg, key);
+    return arrlen(res) > 0 ? res[0] : def;
+}
+
+double get_one_float(CoreConfig *cfg, const char *key, double def) {
+    double *res = get_float(cfg, key);
+    return arrlen(res) > 0 ? res[0] : def;
+}
+const char *get_one_str(CoreConfig *cfg, const char *key, const char *def) {
+    const char **res = get_str(cfg, key);
+    return arrlen(res) > 0 ? res[0] : def;
+}

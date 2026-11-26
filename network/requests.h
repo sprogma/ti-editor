@@ -16,20 +16,25 @@ REQUEST (RequestHeader) {
     u32 request_type;
 };
 
+STRUCT (Guid) {
+    byte value[16];
+};
+
 // GetOperationById
 CONTROL_STREAM REQUEST (RequestGetOperationById) {
     RequestHeader;
+    Guid guid;
     
     OperationId op_id;
 };
 REQUEST (AnswerGetOperationById) {
     RequestHeader;
+    Guid guid;
     
     OperationTypeId tid;
     OperationId op_id;
     u64 data_size;
     byte data[];
 };
-
 
 #endif // REQUESTS_H

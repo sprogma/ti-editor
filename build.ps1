@@ -1,7 +1,13 @@
-param($Threads = $null)
+param($Threads = $null, [switch]$Clear)
 
-mkdir obj 2>$null | Out-Null
-mkdir build 2>$null | Out-Null
+if ($Clear) {
+    rm -r "$PSScriptRoot/obj"
+    rm -r "$PSScriptRoot/build"
+    return
+}
+
+mkdir "$PSScriptRoot/obj" 2>$null | Out-Null
+mkdir "$PSScriptRoot/build" 2>$null | Out-Null
 
 function Format-TimeSpan {
     param([TimeSpan]$ts)
@@ -167,6 +173,7 @@ function Build-Target {
 $BASE_FLAGS = @(
     "-g"
     "-std=gnu2y"
+    "-fstandalone-debug"
     # "-fsanitize=address"
     "-I./utilities"
     "-I./api"
@@ -194,8 +201,8 @@ $CORE_CFLAGS = $BASE_FLAGS + @("-DCORE_BUILD") + ($IsWindows ? @() : @("-fPIC", 
 $CORE_LFLAGS = @("-g", "-shared") + ($IsWindows ? @("-Wl,/IMPLIB:$PSScriptRoot/build/core.lib") : @())
 $CORE_LIBS   = @("-lmsquic", "-Lexternal/msquic/bin/x64", "-Lexternal/msquic/lib/x64")
 $CORE_POSTBUILD = {
-    cp "./external/msquic/bin/x64/msquic.dll" "./build/"
-    cp "./external/msquic/bin/x64/msquic.pdb" "./build/"
+    cp "$PSScriptRoot/external/msquic/bin/x64/msquic.dll" "$PSScriptRoot/build/"
+    cp "$PSScriptRoot/external/msquic/bin/x64/msquic.pdb" "$PSScriptRoot/build/"
 }
 
 $APP_CFLAGS  = $BASE_FLAGS

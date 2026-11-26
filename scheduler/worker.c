@@ -28,6 +28,11 @@ STRUCT (TaskResult) {
     void *value;
 };
 
+typedef union {
+    Task task;
+    i64 next_free;
+} TaskItem;
+
 static struct {
 
     rwlock results_lock;
@@ -35,7 +40,7 @@ static struct {
 
     rwlock lock;
     
-    Task *tasks;
+    TaskItem *tasks;
     u32 *generations;
     i64 free_head;
 
@@ -71,7 +76,7 @@ void init_task_subsystem() {
         i64 *writeback = &ctx.free_head;
         for (i64 i = 0; i < ctx.tasks_alloc; ++i) {
             *writeback = i;
-            writeback = (i64 *)&ctx.tasks[i];
+            writeback = &ctx.tasks[i].next_free;
         }
         *writeback = -1;
     }
@@ -101,21 +106,22 @@ static TaskId alloc_task(i64 priority) {
         // TODO: realloc ctx.tasks up
         panic();
     }
-    ctx.free_head = *(i64 *)&ctx.tasks[cell];
+    ctx.free_head = ctx.tasks[cell].next_free;
     assert(ctx.free_head < ctx.tasks_alloc);
-    i64 gen = ctx.generations[cell];
+    u64 gen = (u32)ctx.generations[cell];
 
     rwl_unwrite(&ctx.lock);
 
-    return (cell << 32) | gen;
+    return ((u64)cell << 32) | gen;
 }
 
 static void free_task(TaskId id) {
     rwl_write(&ctx.lock);
     u64 cell = (u64)id >> 32ull;
     assert(cell < ctx.tasks_alloc);
+    assert(GEN(id) == ctx.generations[cell]);
     ctx.generations[cell]++;
-    *(i64 *)&ctx.tasks[cell] = ctx.free_head;
+    ctx.tasks[cell].next_free = ctx.free_head;
     ctx.free_head = cell;
     assert(ctx.free_head < ctx.tasks_alloc);
     rwl_unwrite(&ctx.lock);
@@ -143,7 +149,7 @@ TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
 
     Time now = get_time();
 
-    Task *task = &ctx.tasks[id >> 32];
+    Task *task = &ctx.tasks[id >> 32].task;
     *task = (Task) {
         .fiber = malloc(sizeof(*task->fiber)),
         .priority = priority,
@@ -169,7 +175,7 @@ void stop_local_task(TaskId id, u64 code) {
     rwl_read(&ctx.lock);
 
     if (ctx.generations[id >> 32] == GEN(id)) {
-        Task *task = &ctx.tasks[id >> 32];
+        Task *task = &ctx.tasks[id >> 32].task;
         atomic_store_explicit(&task->fiber->pending_cancellation, code, memory_order_relaxed);
     }
     
@@ -193,11 +199,11 @@ static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
 
         assert(ctx.generations[id >> 32] == GEN(id));
 
-        fib = ctx.tasks[id >> 32].fiber;
+        fib = ctx.tasks[id >> 32].task.fiber;
         
         Time now = get_time();
-        Time prev_event = atomic_exchange_explicit(&ctx.tasks[id >> 32].t_last_event_time, now, memory_order_relaxed);
-        atomic_fetch_add_explicit(&ctx.tasks[id >> 32].t_execution_wait, now - prev_event, memory_order_relaxed);
+        Time prev_event = atomic_exchange_explicit(&ctx.tasks[id >> 32].task.t_last_event_time, now, memory_order_relaxed);
+        atomic_fetch_add_explicit(&ctx.tasks[id >> 32].task.t_execution_wait, now - prev_event, memory_order_relaxed);
     }
 
     rwl_unwrite(&ctx.lock);
@@ -230,7 +236,7 @@ static void suspend_current_task() {
 
         assert(ctx.generations[id >> 32] == GEN(id)); // cannot suspend dead task
         
-        Task *task = &ctx.tasks[id >> 32];
+        Task *task = &ctx.tasks[id >> 32].task;
         task->wait_mode = tls_worker.wait_mode;
         task->wait_array = tls_worker.wait_array;
         task->wait_count = tls_worker.wait_count;
@@ -293,7 +299,7 @@ static void worker_loop(void) {
                     continue;
                 }
                 
-                Task *tsk = &ctx.tasks[id >> 32];
+                Task *tsk = &ctx.tasks[id >> 32].task;
                 if (tsk->wait_mode == WaitMode_All){ 
                     while (tsk->wait_count > 0) {
                         TaskId dep = tsk->wait_array[0];
@@ -409,7 +415,6 @@ static void *local_task_get_result(TaskId id, i32 *is_ready) {
         if (is_ready) *is_ready = 1;
         res = ctx.results[pos].value;
         hmdel(ctx.results, id);
-        free_task(id);
     } else {
         if (is_ready) *is_ready = 0;
     }

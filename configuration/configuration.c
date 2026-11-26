@@ -6,14 +6,20 @@
 #include <operations.h>
 #include <network.h>
 #include <scheduler.h>
+#include <random.h>
 #include <loader.h>
 
 
 i64 init_systems(CoreConfig *cfg) {
     // simple init
     init_mp_subsystem();
+    
     init_task_subsystem();
-    init_operation_subsystem(0x1, 0);
+    
+    u64 prefix;
+    random_bytes(&prefix, sizeof(prefix));
+    init_operation_subsystem((prefix << OPERATION_PREFIX_SHIFT) >> OPERATION_PREFIX_SHIFT, 0);
+    
     init_network_subsystem(cfg);
 
     // load all modules
