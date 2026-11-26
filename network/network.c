@@ -1,4 +1,5 @@
 #include "network_impl.h"
+#include "requests.h"
 
 #include <ds.h>
 #include <mp.h>
@@ -22,17 +23,27 @@ u64 network_list(NetworkNode *nodes, u64 max_count) {
     return hmlen(ctx.peers);
 }
 
-void network_stat(NetworkStat *stat, NetworkNode node) {
-    rwl_read(&ctx.peers_lock);
-    ptrdiff_t tmp;
-    Peer *peer = hmget_ts(ctx.peers, node, tmp);
-    rwl_unread(&ctx.peers_lock);
-    
-    fill_network_part(stat, peer);
+void network_stat(NetworkNode node, NetworkStat *stat) {
+    if (node == ctx.self_id) {
+        rwl_read(&ctx.stat_local_lock);
+        stat->bandwidth = -1;
+        stat->ping = -1;
+        stat->idle_power = ctx.stat.idle_power;
+        stat->free_ram = ctx.stat.free_ram;
+        stat->free_disk = ctx.stat.free_disk;
+        rwl_unread(&ctx.stat_local_lock);
+    } else {
+        rwl_read(&ctx.peers_lock);
+        ptrdiff_t tmp;
+        Peer *peer = hmget_ts(ctx.peers, node, tmp);
+        rwl_unread(&ctx.peers_lock);
+        
+        fill_network_part(stat, peer);
 
-    stat->idle_power = peer->last_stat.idle_power;
-    stat->free_ram = peer->last_stat.free_ram;
-    stat->free_disk = peer->last_stat.free_disk;
+        stat->idle_power = peer->last_stat.idle_power;
+        stat->free_ram = peer->last_stat.free_ram;
+        stat->free_disk = peer->last_stat.free_disk;
+    }
 }
 
 static void get_data_req(OperationId op_id, Range *rg, ReferenceSegment **res_arr) {

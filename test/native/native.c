@@ -34,10 +34,13 @@ i64 get_pos(Position pos) {
     return -1;
 }
 
-i64 aboba_decompose(void *ptr_data, const Range *range, RangeTask *items, u64 max_items) {
+u64 aboba_decompose(void *ptr_data, const Range *range, RangeTask *items, u64 max_items) {
     AbobaOp *self = ptr_data;
     assert(max_items > 0);
     i64 l = get_pos(range->l), r = get_pos(range->r);
+    if (l >= r || l < 0 || r < 0) {
+        return 0;
+    }
     items[0].op = InvalidOperation;
     items[0].seg.data = ((const byte *)"aboba") + l;
     items[0].seg.size = r - l;

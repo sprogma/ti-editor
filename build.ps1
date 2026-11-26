@@ -185,6 +185,7 @@ $BASE_FLAGS = @(
     "-I./external"
     "-I./external/msquic/include"
     "-D_CRT_SECURE_NO_WARNINGS"
+    "-D_CRT_NONSTDC_NO_DEPRECATE"
     "-DQUIC_API_ENABLE_PREVIEW_FEATURES=1"
     "-Wall"
     "-Watomic-implicit-seq-cst"

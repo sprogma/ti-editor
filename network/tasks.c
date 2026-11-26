@@ -1,4 +1,6 @@
 #include "network_impl.h"
+#include "requests.h"
+
 #include <config_impl.h>
 #include <mp.h>
 #include <ds.h>
@@ -303,6 +305,13 @@ i32 init_network_subsystem(CoreConfig *cfg) {
     ctx.guid_buffer_size = 0;
     ctx.guid_expiration_period = T_MS(get_one_int(cfg, "net.guid_expiration_ms", 10000));
     rwl_init(&ctx.guid_lock);
+    
+    ctx.stat_running = 1;
+    ctx.stat.idle_power = -1.0;
+    ctx.stat.free_ram = -1;
+    ctx.stat.free_disk = -1;
+    ctx.stat_share_interval = T_MS(get_one_int(cfg, "net.stat_share_interval_ms", 500));
+    rwl_init(&ctx.stat_local_lock);
 
     // TODO: use some device-based id?
     random_bytes(&ctx.self_id, sizeof(ctx.self_id));
@@ -347,6 +356,11 @@ i32 init_network_subsystem(CoreConfig *cfg) {
         }
         printf("[Net] Listening on UDP port %u\n", listen_port);
     }
+
+    ctx.on_message = on_incoming_message;
+
+    thread_create(&ctx.stat_thread, share_statistic_worker, NULL);
+    
     printf("[Net] Network subsystem initialized\n");
     return 0;
 error:
@@ -451,10 +465,6 @@ Peer *open_connection(const peer_addr_t *addr) {
         return NULL;
     }
     return peer;
-}
-
-void net_set_message_handler(net_on_message_fn handler) {
-    ctx.on_message = handler;
 }
 
 static void process_incoming_bytes(Channel *ch, const byte *data, u32 len) {
@@ -758,142 +768,4 @@ Channel *get_control_channel_by_id(NetworkNode id) {
     Peer *peer = get_peer(id);
     if (!peer) return NULL;
     return get_control_channel(peer);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void start_network(void) {
-    net_set_message_handler(on_incoming_message);
-
-    printf("[Chat] Node ready on UDP port %u.\n", ctx.local_port);
-    printf("Commands:\n");
-    printf("  /connect <port>  - connect to 127.0.0.1:<port>\n");
-    printf("  /peers           - show connected peers count\n");
-    printf("  /abobaop         - create new aboba op\n");
-    printf("  /read <id>       - read text from op\n");
-    printf("  /quit            - disconnect all and exit\n");
-
-    char line[1024];
-    while (true) {
-        printf("> ");
-        fflush(stdout);
-
-        if (!fgets(line, sizeof(line), stdin)) {
-            break;
-        }
-
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[--len] = '\0';
-        }
-
-        if (len == 0) {
-            continue;
-        }
-
-        if (strcmp(line, "/quit") == 0) {
-            break;
-        }
-
-        if (strcmp(line, "/abobaop") == 0) {
-            OperationId opid = create_operation(0xAB0BA, NULL, 0);
-            assert(opid != InvalidOperation);
-            printf("new operation id = %lld\n", opid);
-            continue;
-        }
-
-        if (strncmp(line, "/read ", 6) == 0) {
-            OperationId opid = atoll(line + 6);
-
-            RequestInfo rq[1] = {
-                {
-                    .request_type = RequestInfoType_Data,
-                    .data = {
-                        .op = opid,
-                        .range = {{1, 0}, {2, 0}},
-                    },
-                },
-            };
-            TaskId tsk[1];
-            network_run(network_get_self(), tsk, rq, 1);
-            assert(tsk[0] != InvalidTaskId);
-            printf("Tasks runned\n");
-            DataTaskResult *d0, *d2;
-            i64 a1;
-            int is_ready;
-            printf("wait for d0\n");
-            do { d0 = task_get_data(tsk[0], &is_ready); mp_sleep(T_MS(10)); } while (!is_ready);
-            printf("all data collected\n");
-            for (int i = 0; i < d0->data_count; ++i) {
-                printf("Task0[%d] = <%.*s> from op=%lld\n", i, (int)d0->data[i].seg.size, (char *)d0->data[i].seg.data, d0->data[i].op);
-            }
-            task_unref_segment(d0);
-            continue;
-        }
-        
-        if (strcmp(line, "/peers") == 0) {
-            rwl_read(&ctx.peers_lock);
-            printf("[Chat] Active peers: %td\n", hmlen(ctx.peers));
-            for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
-                Peer *p = ctx.peers[i].value;
-                printf("  #%td: %s, connected=%d, ctrl_stream=%p\n",
-                       i,
-                       p->is_incoming ? "IN" : "OUT",
-                       atomic_load(&p->is_connected),
-                       (void *)p->ctrl_stream);
-            }
-            rwl_unread(&ctx.peers_lock);
-            continue;
-        }
-
-        if (strncmp(line, "/connect ", 9) == 0) {
-            u16 target_port = (u16)atoi(line + 9);
-            if (target_port == 0) {
-                printf("[Chat] Invalid port. Usage: /connect <port>\n");
-                continue;
-            }
-
-            peer_addr_t addr = {
-                .type = PEER_ADDR_DIRECT_IP,
-                .direct = {
-                    .ip = "127.0.0.1",
-                    .port = target_port
-                }
-            };
-
-            printf("[Chat] Connecting to 127.0.0.1:%u...\n", target_port);
-            if (!open_connection(&addr)) {
-                printf("[Chat] Failed to start connection\n");
-            }
-            continue;
-        }
-
-        printf("Unknown command\n");
-    }
-
-    rwl_read(&ctx.peers_lock);
-    for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
-        close_connection(ctx.peers[i].value, 0);
-    }
-    rwl_unread(&ctx.peers_lock);
 }

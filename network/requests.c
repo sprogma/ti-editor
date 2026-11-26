@@ -1,4 +1,5 @@
 #include "network_impl.h"
+#include "requests.h"
 
 #include <ds.h>
 #include <mp.h>

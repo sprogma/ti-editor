@@ -53,15 +53,16 @@ i32 get_operation(OperationId op_id, Operation *out) {
 i32 fiber_get_operation(OperationId op_id, Operation *out) {
     // TODO: make some way to hook on network getting for operation
     i32 res = get_operation(op_id, out);
+    Time start = get_time();
     while (res == GET_OPERATION_RETRY) {
-        printf("oh, retrying...\n");
+        // TODO: fix wait?
         // wait(NULL, 0);
         mp_sleep(T_MS(100));
-        printf("from wait, retrying...\n");
         res = get_operation(op_id, out);
-        printf("another check...\n");
+        if ((get_time() - start) > T_SEC(3)) {
+            return GET_OPERATION_ERROR;
+        }
     }
-    printf("res! %d\n", res);
     return res;
 }
 

@@ -2,7 +2,6 @@
 #define NETWORK_IMPL_H
 
 #include "network.h"
-#include "requests.h"
 
 #include <msquic.h>
 
@@ -10,6 +9,10 @@
 #include <ds.h>
 #include <mp.h>
 
+
+STRUCT (Guid) {
+    byte value[16];
+};
 
 typedef enum {
     PEER_ADDR_DIRECT_IP = 0,
@@ -124,6 +127,13 @@ extern struct NetworkContext {
     u64 guid_buffer_head;
     u64 guid_buffer_size;
     Time guid_expiration_period;
+
+    // stats
+    _Atomic i32 stat_running;
+    PeerStat stat;
+    rwlock stat_local_lock;
+    thread_t stat_thread;
+    Time stat_share_interval;
     
 } network_ctx;
 
@@ -149,6 +159,7 @@ void build_operation(OperationTypeId tid, OperationId op_id, void *data, u64 dat
 Peer *get_peer(NetworkNode id);
 void on_incoming_message(Channel *ch, const byte *data, u32 len);
 void send_request_operation(OperationId op_id, byte guid[16]);
+void share_statistic_worker(void *arg);
 
 bool has_or_remember_guid(Guid value); // return true if exists
 

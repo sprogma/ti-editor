@@ -12,6 +12,6 @@ typedef unsigned char byte;
 #define T_SEC(x) ((x) * 1000000000ull)
 #define T_MS(x) ((x) * 1000000ull)
 #define T_US(x) ((x) * 1000ull)
-typedef u64 Time; // nanoseconds
+typedef i64 Time; // nanoseconds
 
 #endif

@@ -145,6 +145,7 @@ CORE_API void add_statistic_type(StatisticId id, IStatistic *ist);
 
 #define GET_OPERATION_SUCCESS 0
 #define GET_OPERATION_RETRY 1
+#define GET_OPERATION_ERROR 2
 
 CORE_API i32 get_operation(OperationId op_id, Operation *out);
 CORE_API i32 get_operation_no_load(OperationId op_id, Operation *out);
@@ -210,14 +211,14 @@ STRUCT (NetworkStat) {
     // if field is "< 0" that means no data available
     double idle_power; // in ~cpu cores
     Time ping;
-    u64 bandwidth; // in BYTES per second [!]
-    u64 free_ram; // in bytes
-    u64 free_disk; // in bytes
+    i64 bandwidth; // in BYTES per second [!]
+    i64 free_ram; // in bytes
+    i64 free_disk; // in bytes
 };
 
 CORE_API NetworkNode network_get_self();
 CORE_API u64 network_list(NetworkNode *nodes, u64 max_count);
-CORE_API void network_stat(NetworkStat *stat, NetworkNode node);
+CORE_API void network_stat(NetworkNode node, NetworkStat *stat);
 CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count);
 CORE_API void network_stop(TaskId id, u64 cancel_code);
 

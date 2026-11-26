@@ -39,7 +39,7 @@ int thread_create(thread_t *t, thread_func_t func, void *arg);
 void thread_join(thread_t t);
 
 Time get_time(void);
-void mp_sleep(u64 ms);
+void mp_sleep(Time t);
 
 void init_mp_subsystem(void);
 

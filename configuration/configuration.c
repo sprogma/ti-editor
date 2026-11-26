@@ -38,11 +38,6 @@ i64 init_systems(CoreConfig *cfg) {
         assert(res == 0);
     }
 
-    if (arrlen(get_int(cfg, "network.run"))) {
-        printf("Running network...");
-        start_network();
-    }
-
     config_free(cfg);
     
     return 0;

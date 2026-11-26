@@ -10,14 +10,11 @@
 
 enum {
     GET_OPERATION_BY_ID,
+    SHARE_STATISTIC,
 };
 
 REQUEST (RequestHeader) {
     u32 request_type;
-};
-
-STRUCT (Guid) {
-    byte value[16];
 };
 
 // GetOperationById
@@ -27,6 +24,7 @@ CONTROL_STREAM REQUEST (RequestGetOperationById) {
     
     OperationId op_id;
 };
+
 REQUEST (AnswerGetOperationById) {
     RequestHeader;
     Guid guid;
@@ -35,6 +33,12 @@ REQUEST (AnswerGetOperationById) {
     OperationId op_id;
     u64 data_size;
     byte data[];
+};
+
+REQUEST (RequestShareStatistic) {
+    RequestHeader;
+
+    PeerStat stats;
 };
 
 #endif // REQUESTS_H

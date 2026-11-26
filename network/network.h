@@ -7,8 +7,6 @@
 
 i32 init_network_subsystem(CoreConfig *cfg);
 
-void start_network(void);
-
 // TODO: add hook via callback argument
 //       [or add check for waiting tasks inside deserialize_operation]
 void request_operation(OperationId op_id);

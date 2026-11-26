@@ -59,7 +59,7 @@ void thread_join(thread_t t) {
     pthread_join(t, NULL);
 }
 
-void mp_sleep(u64 t) {
+void mp_sleep(Time t) {
     struct timespec req, rem;
     req.tv_sec  = t / 1000000000;
     req.tv_nsec = t % 1000000000;
