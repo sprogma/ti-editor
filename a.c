@@ -363,7 +363,18 @@ bad:
 }
 
 static char *cmd_echo(char **args, u64 argc) {
-    static char buf[1024];
+    static char buf[1024*8];
+    buf[0] = '\0';
+    for (u64 i = 1; i < argc; i++) {
+        if (i > 1) strncat(buf, " ", sizeof(buf) - strlen(buf) - 1);
+        strncat(buf, args[i], sizeof(buf) - strlen(buf) - 1);
+    }
+    printf("%s", buf);
+    return "";
+}
+
+static char *cmd_cat(char **args, u64 argc) {
+    static char buf[1024*8];
     buf[0] = '\0';
     for (u64 i = 1; i < argc; i++) {
         if (i > 1) strncat(buf, " ", sizeof(buf) - strlen(buf) - 1);
@@ -392,6 +403,77 @@ bad:
     return buf;
 }
 
+static char *cmd_sub(char **args, u64 argc) {
+    static char buf[1024];
+    buf[0] = '\0';
+    if (argc != 4) { printf("sub: usage sub str l r\n"); return buf; }
+    i64 l, r;
+    if (!to_i64(args[2], &l) || !to_i64(args[3], &r)) { printf("sub: l, r must be integers\n"); return buf; }
+    const char *s = args[1];
+    i64 len = (i64)strlen(s);
+    if (l < 0) l = 0;
+    if (r > len) r = len;
+    if (r < l) r = l;
+    snprintf(buf, sizeof(buf), "%.*s", (int)(r - l), s + l);
+    return buf;
+}
+
+static char *cmd_rep(char **args, u64 argc) {
+    static char buf[2048];
+    buf[0] = '\0';
+    if (argc != 4) { printf("rep: usage rep str from to\n"); return buf; }
+    const char *s = args[1], *from = args[2], *to = args[3];
+    size_t flen = strlen(from), tlen = strlen(to);
+    if (flen == 0) { snprintf(buf, sizeof(buf), "%s", s); return buf; }
+    char *dst = buf, *end = buf + sizeof(buf) - 1;
+    const char *p = s;
+    while (*p && dst < end) {
+        if (strncmp(p, from, flen) == 0) {
+            size_t n = (size_t)(end - dst);
+            if (tlen < n) n = tlen;
+            memcpy(dst, to, n);
+            dst += n;
+            p += flen;
+        } else {
+            *dst++ = *p++;
+        }
+    }
+    *dst = '\0';
+    return buf;
+}
+
+static char *cmd_len(char **args, u64 argc) {
+    static char buf[32];
+    if (argc != 2) { printf("len: usage len str\n"); return ""; }
+    snprintf(buf, sizeof(buf), "%zu", strlen(args[1]));
+    return buf;
+}
+
+static char *cmd_upper(char **args, u64 argc) {
+    static char buf[1024];
+    if (argc != 2) { printf("upper: usage upper str\n"); return ""; }
+    snprintf(buf, sizeof(buf), "%s", args[1]);
+    for (char *p = buf; *p; p++) *p = toupper((unsigned char)*p);
+    return buf;
+}
+
+static char *cmd_lower(char **args, u64 argc) {
+    static char buf[1024];
+    if (argc != 2) { printf("lower: usage lower str\n"); return ""; }
+    snprintf(buf, sizeof(buf), "%s", args[1]);
+    for (char *p = buf; *p; p++) *p = tolower((unsigned char)*p);
+    return buf;
+}
+
+static char *cmd_find(char **args, u64 argc) {
+    static char buf[32];
+    if (argc != 3) { printf("find: usage find str substring\n"); return ""; }
+    const char *p = strstr(args[1], args[2]);
+    snprintf(buf, sizeof(buf), "%lld", p ? (long long)(p - args[1]) : -1LL);
+    return buf;
+}
+
+
 static char *cmd_help(char **args, u64 argc) {
     (void)args; (void)argc;
     printf(
@@ -414,21 +496,39 @@ static char *cmd_help(char **args, u64 argc) {
         "    ls \n"
         "stat -> get statistic for given node \n"
         "    stat [node] \n"
+        "sub -> substring \n"
+        "    sub [string] [left] [right] \n"
+        "rep -> replace \n"
+        "    rep [string] [from] [to] \n"
+        "len -> length \n"
+        "    len [string] \n"
+        "upper -> make string upper \n"
+        "    upper [string] \n"
+        "lower -> make string lower \n"
+        "    lower [string] \n"
+        "find -> find substring, return index or -1 \n"
+        "    find [string] [substring] \n"
     );
     printf("Examples: $x = 4 + 5 * (2 + 3); while ($x -lt 40) { $x++; echo $x }; echo (at 2 @(echo x y z))\n");
     return "";
 }
 
 static void init_builtins(void) {
-    shputs(g_cmds, ((Command){.key="echo", .fn=cmd_echo}));
-    shputs(g_cmds, ((Command){.key="at",   .fn=cmd_at}));
-    shputs(g_cmds, ((Command){.key="get",  .fn=cmd_read}));
-    shputs(g_cmds, ((Command){.key="pos",  .fn=cmd_anchor}));
-    shputs(g_cmds, ((Command){.key="op",   .fn=start_op}));
-    shputs(g_cmds, ((Command){.key="ls",   .fn=list_net}));
-    shputs(g_cmds, ((Command){.key="self", .fn=list_self}));
-    shputs(g_cmds, ((Command){.key="stat", .fn=net_stat}));
-    shputs(g_cmds, ((Command){.key="help", .fn=cmd_help}));
+    shputs(g_cmds, ((Command){.key="echo",  .fn=cmd_echo}));
+    shputs(g_cmds, ((Command){.key="at",    .fn=cmd_at}));
+    shputs(g_cmds, ((Command){.key="get",   .fn=cmd_read}));
+    shputs(g_cmds, ((Command){.key="pos",   .fn=cmd_anchor}));
+    shputs(g_cmds, ((Command){.key="op",    .fn=start_op}));
+    shputs(g_cmds, ((Command){.key="ls",    .fn=list_net}));
+    shputs(g_cmds, ((Command){.key="self",  .fn=list_self}));
+    shputs(g_cmds, ((Command){.key="stat",  .fn=net_stat}));
+    shputs(g_cmds, ((Command){.key="help",  .fn=cmd_help}));
+    shputs(g_cmds, ((Command){.key="sub",   .fn=cmd_sub}));
+    shputs(g_cmds, ((Command){.key="rep",   .fn=cmd_rep}));
+    shputs(g_cmds, ((Command){.key="len",   .fn=cmd_len}));
+    shputs(g_cmds, ((Command){.key="upper", .fn=cmd_upper}));
+    shputs(g_cmds, ((Command){.key="lower", .fn=cmd_lower}));
+    shputs(g_cmds, ((Command){.key="find",  .fn=cmd_find}));
     g_cmd_count = shlen(g_cmds);
 }
 
