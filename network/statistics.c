@@ -96,7 +96,7 @@ void share_statistic_worker(void *arg) {
 
         RequestShareStatistic req = {
             .request_type = SHARE_STATISTIC,
-            .stats = {
+            .stat = {
                 .idle_power = idle_power,
                 .free_ram = free_ram,
                 .free_disk = free_disk,

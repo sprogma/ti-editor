@@ -133,6 +133,10 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
             }
             arrfree(events);
         } break;
+        case SHARE_STATISTIC: {
+            RequestShareStatistic *msg = (void *)data;
+            peer->stat = msg->stat;
+        } break;
         default:
             printf("UNHANDLED REQUEST TYPE\n");
             panic();

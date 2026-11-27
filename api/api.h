@@ -222,6 +222,32 @@ CORE_API void network_stat(NetworkNode node, NetworkStat *stat);
 CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count);
 CORE_API void network_stop(TaskId id, u64 cancel_code);
 
+// TODO: make this normal
+typedef enum {
+    PEER_ADDR_DIRECT_IP = 0,
+    PEER_ADDR_NAT_PUNCH = 1,
+} peer_addr_type_t;
+
+typedef struct {
+    peer_addr_type_t type;
+    union {
+        struct {
+            char ip[64];
+            u16 port;
+        } direct;
+        struct {
+            u64 session_id;
+            char ext_ip[64];
+            u16 ext_port;
+            u16 local_port;
+        } nat;
+    };
+} peer_addr_t;
+
+CORE_API i64 network_open_connection(const peer_addr_t *addr);
+
+CORE_API void network_quit(); // disconnect from all
+
 // ---- fiber api ----------------------------------------------------------------
 
 // non zero exit code means THIS task is cancelled, and must return immediatly after releasing resources [and childs]

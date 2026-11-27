@@ -40,9 +40,9 @@ void network_stat(NetworkNode node, NetworkStat *stat) {
         
         fill_network_part(stat, peer);
 
-        stat->idle_power = peer->last_stat.idle_power;
-        stat->free_ram = peer->last_stat.free_ram;
-        stat->free_disk = peer->last_stat.free_disk;
+        stat->idle_power = peer->stat.idle_power;
+        stat->free_ram = peer->stat.free_ram;
+        stat->free_disk = peer->stat.free_disk;
     }
 }
 

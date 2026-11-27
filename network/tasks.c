@@ -207,9 +207,9 @@ static void init_peer(Peer *peer) {
     atomic_init(&peer->refcount, 1);
     atomic_init(&peer->is_connected, false);
     random_bytes(&peer->id, sizeof(peer->id));
-    peer->last_stat.idle_power = 1.0;
-    peer->last_stat.free_ram = -1;
-    peer->last_stat.free_disk = -1;
+    peer->stat.idle_power = 1.0;
+    peer->stat.free_ram = -1;
+    peer->stat.free_disk = -1;
 
     for (i32 i = 0; i < max_hops; ++i) {
         peer->abf[i].filter = calloc(1, abf_size / 64);
@@ -398,7 +398,6 @@ void shutdown_network_subsystem(void) {
     printf("[Net] Network subsystem stopped\n");
 }
 
-
 Peer *open_connection(const peer_addr_t *addr) {
     if (!ctx.api || !ctx.client_cfg || !addr) {
         return NULL;
@@ -467,6 +466,10 @@ Peer *open_connection(const peer_addr_t *addr) {
     return peer;
 }
 
+i64 network_open_connection(const peer_addr_t *addr) {
+    return open_connection(addr) == NULL;
+}
+
 static void process_incoming_bytes(Channel *ch, const byte *data, u32 len) {
     if (!ch->is_framed) {
         if (ctx.on_message) {
@@ -526,6 +529,7 @@ static void process_incoming_bytes(Channel *ch, const byte *data, u32 len) {
         ch->rx_offset = 0;
     }
 }
+
 
 static QUIC_STATUS QUIC_API channel_callback(HQUIC stream, void *context, QUIC_STREAM_EVENT *event) {
     Channel *ch = (Channel *)context;
@@ -768,4 +772,12 @@ Channel *get_control_channel_by_id(NetworkNode id) {
     Peer *peer = get_peer(id);
     if (!peer) return NULL;
     return get_control_channel(peer);
+}
+
+void network_quit() {   
+    rwl_read(&ctx.peers_lock);
+    for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
+        close_connection(ctx.peers[i].value, 0);
+    }
+    rwl_unread(&ctx.peers_lock);
 }

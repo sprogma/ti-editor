@@ -38,7 +38,7 @@ REQUEST (AnswerGetOperationById) {
 REQUEST (RequestShareStatistic) {
     RequestHeader;
 
-    PeerStat stats;
+    PeerStat stat;
 };
 
 #endif // REQUESTS_H

@@ -136,6 +136,8 @@ int main(int argc, char **argv) {
     Sleep(1000);
     
     start_term(port);
+
+    network_quit();
     
     return 0;
 }
@@ -362,6 +364,28 @@ bad:
     return buf;
 }
 
+static char *cmd_connect(char **args, u64 argc) {
+    if (argc != 2) goto bad;
+    i64 target_port;
+    if (!to_i64(args[1], &target_port)) goto bad;
+    if ((i64)(u16)target_port != target_port) goto bad;
+    peer_addr_t addr = {
+        .type = PEER_ADDR_DIRECT_IP,
+        .direct = {
+            .ip = "127.0.0.1",
+            .port = target_port
+        }
+    };
+    printf("Connecting to 127.0.0.1:%u...\n", target_port);
+    if (!network_open_connection(&addr)) {
+        printf("[Chat] Failed to start connection\n");
+    }
+    return "";
+bad:
+    printf("ERROR: probably given not integer or not 1... [or port is not u16]\n");
+    return "";
+}
+
 static char *cmd_echo(char **args, u64 argc) {
     static char buf[1024*8];
     buf[0] = '\0';
@@ -522,6 +546,7 @@ static void init_builtins(void) {
     shputs(g_cmds, ((Command){.key="get",   .fn=cmd_read}));
     shputs(g_cmds, ((Command){.key="pos",   .fn=cmd_anchor}));
     shputs(g_cmds, ((Command){.key="op",    .fn=start_op}));
+    shputs(g_cmds, ((Command){.key="con",   .fn=cmd_connect}));
     shputs(g_cmds, ((Command){.key="ls",    .fn=list_net}));
     shputs(g_cmds, ((Command){.key="self",  .fn=list_self}));
     shputs(g_cmds, ((Command){.key="stat",  .fn=net_stat}));

@@ -14,27 +14,6 @@ STRUCT (Guid) {
     byte value[16];
 };
 
-typedef enum {
-    PEER_ADDR_DIRECT_IP = 0,
-    PEER_ADDR_NAT_PUNCH = 1,
-} peer_addr_type_t;
-
-typedef struct {
-    peer_addr_type_t type;
-    union {
-        struct {
-            char ip[64];
-            u16 port;
-        } direct;
-        struct {
-            u64 session_id;
-            char ext_ip[64];
-            u16 ext_port;
-            u16 local_port;
-        } nat;
-    };
-} peer_addr_t;
-
 struct Channel;
 typedef struct Channel Channel;
 
@@ -65,7 +44,7 @@ STRUCT (Peer) {
     _Atomic i32 is_connected;
     _Atomic i32 refcount;
 
-    PeerStat last_stat;
+    PeerStat stat;
 
     PeerFilter abf[max_hops];
 };
