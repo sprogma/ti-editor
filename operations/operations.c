@@ -82,7 +82,7 @@ OperationId create_operation(OperationTypeId type, void *args, u64 args_size) {
     rwl_write(&ctx.op_lock);
 
     hmput(ctx.operations, new_id, op);
-    
+
     rwl_unwrite(&ctx.op_lock);
 
     return new_id;
@@ -95,7 +95,7 @@ void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, 
     if (res != -1) {
         return;
     }
-    
+
     const IOperation *iop = get_operation_type(type);
     assert(iop);
 
@@ -105,10 +105,10 @@ void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, 
     rwl_write(&ctx.op_lock);
 
     res = hmgeti(ctx.operations, op_id);
-    if (res == -1) { 
+    if (res == -1) {
         hmput(ctx.operations, op_id, op);
     }
-    
+
     rwl_unwrite(&ctx.op_lock);
 
     if (res != -1) {
@@ -119,7 +119,7 @@ void deserialize_operation(OperationTypeId type, OperationId op_id, byte *data, 
 void init_operation_subsystem(u64 op_id_prefix, u64 next_op_id) {
     assert(op_id_prefix != 0 || next_op_id != 0); // 0 = InvalidOperation
     assert(((op_id_prefix << OPERATION_PREFIX_SHIFT) >> OPERATION_PREFIX_SHIFT) == op_id_prefix);
-    
+
     rwl_init(&ctx.op_lock);
 
     ctx.op_id_prefix = op_id_prefix << OPERATION_PREFIX_SHIFT;

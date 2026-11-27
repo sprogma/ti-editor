@@ -39,7 +39,7 @@ static struct {
     TaskResult *results;
 
     rwlock lock;
-    
+
     TaskItem *tasks;
     u32 *generations;
     i64 free_head;
@@ -169,16 +169,16 @@ TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
     return id;
 }
 
-void stop_local_task(TaskId id, u64 code) { 
+void stop_local_task(TaskId id, u64 code) {
     assert(code != 0);
-    
+
     rwl_read(&ctx.lock);
 
     if (ctx.generations[id >> 32] == GEN(id)) {
         Task *task = &ctx.tasks[id >> 32].task;
         atomic_store_explicit(&task->fiber->pending_cancellation, code, memory_order_relaxed);
     }
-    
+
     rwl_unread(&ctx.lock);
 }
 
@@ -200,7 +200,7 @@ static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
         assert(ctx.generations[id >> 32] == GEN(id));
 
         fib = ctx.tasks[id >> 32].task.fiber;
-        
+
         Time now = get_time();
         Time prev_event = atomic_exchange_explicit(&ctx.tasks[id >> 32].task.t_last_event_time, now, memory_order_relaxed);
         atomic_fetch_add_explicit(&ctx.tasks[id >> 32].task.t_execution_wait, now - prev_event, memory_order_relaxed);
@@ -211,7 +211,7 @@ static void scheduler_next_fiber(TaskId *out_id, FiberInfo **out_fib) {
     if (id != InvalidTaskId) {
         printf("task %lld was scheduled\n", id);
     }
-    
+
     *out_fib = fib;
     *out_id = id;
 }
@@ -231,19 +231,19 @@ static void suspend_current_task() {
     } else {
         TaskId id = tls_worker.current_id;
         FiberInfo *fib = tls_worker.current;
-        
+
         rwl_write(&ctx.lock);
 
         assert(ctx.generations[id >> 32] == GEN(id)); // cannot suspend dead task
-        
+
         Task *task = &ctx.tasks[id >> 32].task;
         task->wait_mode = tls_worker.wait_mode;
         task->wait_array = tls_worker.wait_array;
         task->wait_count = tls_worker.wait_count;
-        
+
         i64 pending_pos = ctx.pending_count++;
         ctx.pending[pending_pos] = id;
-        
+
         rwl_unwrite(&ctx.lock);
     }
     tls_worker.wait_mode = WaitMode_None;
@@ -254,16 +254,16 @@ static void suspend_current_task() {
 void internal_fiber_on_return_c(void *res) {
     // fiber was finished
     assert(tls_worker.current_id != InvalidTaskId);
-    
+
     printf("Task %lld was finished\n", tls_worker.current_id);
-    
+
     rwl_write(&ctx.results_lock);
     hmput(ctx.results, tls_worker.current_id, res);
     rwl_unwrite(&ctx.results_lock);
-    
+
     free_task(tls_worker.current_id);
     tls_worker.current_id = InvalidTaskId;
-    
+
     internal_fiber_exit(&tls_worker);
 }
 
@@ -280,7 +280,7 @@ static void worker_loop(void) {
             internal_fiber_resume(next->rsp);
         } else {
             Time t1 = get_time();
-            mp_sleep(1);
+            mp_sleep(T_MS(10));
 
             // update all pendings
             // TODO: make this reactive-model
@@ -292,15 +292,15 @@ static void worker_loop(void) {
             i32 i = 0;
             while (i < ctx.pending_count) {
                 TaskId id = ctx.pending[i];
-                
+
                 // if task is ended
                 if (ctx.generations[id >> 32] != GEN(id)) {
                     ctx.pending[i] = ctx.pending[--ctx.pending_count];
                     continue;
                 }
-                
+
                 Task *tsk = &ctx.tasks[id >> 32].task;
-                if (tsk->wait_mode == WaitMode_All){ 
+                if (tsk->wait_mode == WaitMode_All){
                     while (tsk->wait_count > 0) {
                         TaskId dep = tsk->wait_array[0];
                         if (ctx.generations[dep >> 32] != GEN(dep)) {
@@ -310,16 +310,16 @@ static void worker_loop(void) {
                             break;
                         }
                     }
-                    
+
                     if (tsk->wait_count == 0) {
-                        ctx.pending[i] = ctx.pending[--ctx.pending_count]; 
+                        ctx.pending[i] = ctx.pending[--ctx.pending_count];
                         to_queue[to_queue_size++] = id;
                         if (to_queue_size == (sizeof(to_queue)/sizeof(*to_queue))) {
                             break;
                         }
                     } else {
                         i++;
-                    }   
+                    }
                 } else {
                     panic();
                 }
@@ -329,7 +329,7 @@ static void worker_loop(void) {
             for (u64 i = 0; i < to_queue_size; ++i) {
                 enqueue_task(to_queue[i]);
             }
-            
+
             Time t2 = get_time();
             atomic_fetch_add_explicit(&ctx.t_idle, t2 - t1, memory_order_relaxed);
         }
@@ -339,7 +339,7 @@ static void worker_loop(void) {
 void worker_thread(void *arg) {
     // TODO: pass config via args
     (void)arg;
-    
+
     u64 rsp = (u64)__builtin_frame_address(0);
     tls_worker.rsp = (void *)((rsp & ~0xFULL) - 8); // add space as for ret address
     tls_worker.loop = worker_loop;
@@ -360,7 +360,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
         suspend_current_task();
         need_switch = true;
     }
-    
+
     rwl_read(&ctx.lock);
     for (u64 i = 0; i < count; ++i) {
         if (ctx.generations[ids[i] >> 32] == GEN(ids[i])) {
@@ -370,7 +370,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
             tls_worker.wait_array = ids + i;
             tls_worker.wait_count = count - i;
             suspend_current_task();
-            
+
             need_switch = true;
             break;
         }
@@ -379,7 +379,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
         rwl_unread(&ctx.lock);
     }
 
-    if (need_switch) { 
+    if (need_switch) {
         // try to swap with waiting task
         TaskId new_id;
         FiberInfo *new_fib;
@@ -393,7 +393,7 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
             return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
         }
     }
-    
+
     return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
 }
 
