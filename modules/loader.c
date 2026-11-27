@@ -37,7 +37,7 @@ i64 load_module(const char *path) {
     }
 
     rwl_write(&ctx.lock);
-    
+
 #ifdef _WIN32
     HMODULE handle = LoadLibraryA(path);
     if (!handle) {
@@ -89,7 +89,7 @@ i64 load_module(const char *path) {
     info->loaded_path = path;
 
     hmput(ctx.modules, info->id, info);
-    
+
     rwl_unwrite(&ctx.lock);
     return 0;
 }
@@ -101,9 +101,9 @@ const Module *get_module(ModuleId id) {
 
     i64 pos = hmgeti(ctx.modules, id);
     if (pos != -1) {
-        res = &ctx.modules[pos].value;
+        res = ctx.modules[pos].value;
     }
-    
+
     rwl_unread(&ctx.lock);
     return res;
 }
