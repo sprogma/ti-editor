@@ -478,8 +478,22 @@ static char *cmd_help(char **args, u64 argc) {
     (void)args; (void)argc;
     printf(
         "Commands:\n"
-        "echo -> concats all input using spaces \n"
+        "echo -> print all arguments, return nothing \n"
         "    echo [string...] (varialdic) \n"
+        "cat -> concats all input using spaces \n"
+        "    cat [string...] (varialdic) \n"
+        "sub -> substring \n"
+        "    sub [string] [left] [right] \n"
+        "rep -> replace \n"
+        "    rep [string] [from] [to] \n"
+        "len -> length \n"
+        "    len [string] \n"
+        "upper -> make string upper \n"
+        "    upper [string] \n"
+        "lower -> make string lower \n"
+        "    lower [string] \n"
+        "find -> find substring, return index or -1 \n"
+        "    find [string] [substring] \n"
         "at -> use for arrays, zero indexed \n"
         "    echo [index] [strings...] (varialdic) \n"
         "get -> request text slice from operation \n"
@@ -496,24 +510,13 @@ static char *cmd_help(char **args, u64 argc) {
         "    ls \n"
         "stat -> get statistic for given node \n"
         "    stat [node] \n"
-        "sub -> substring \n"
-        "    sub [string] [left] [right] \n"
-        "rep -> replace \n"
-        "    rep [string] [from] [to] \n"
-        "len -> length \n"
-        "    len [string] \n"
-        "upper -> make string upper \n"
-        "    upper [string] \n"
-        "lower -> make string lower \n"
-        "    lower [string] \n"
-        "find -> find substring, return index or -1 \n"
-        "    find [string] [substring] \n"
     );
     printf("Examples: $x = 4 + 5 * (2 + 3); while ($x -lt 40) { $x++; echo $x }; echo (at 2 @(echo x y z))\n");
     return "";
 }
 
 static void init_builtins(void) {
+    shputs(g_cmds, ((Command){.key="cat",   .fn=cmd_cat}));
     shputs(g_cmds, ((Command){.key="echo",  .fn=cmd_echo}));
     shputs(g_cmds, ((Command){.key="at",    .fn=cmd_at}));
     shputs(g_cmds, ((Command){.key="get",   .fn=cmd_read}));
