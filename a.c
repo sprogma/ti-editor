@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     assert(res2 == GET_OPERATION_SUCCESS);
     const IOperation *iop = get_operation_type(op.type);
     assert(iop);
-    
+
     RangeTask data[8];
     i64 res3 = iop->decompose(op.self, &(Range){{1, 1}, {2, -1}}, data, 8);
     assert(res3 > 0);
@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
             byte *txt = data[i].seg.data;
             printf("res[%d] = <%.*s>\n", i, (int)siz, (char *)txt);
         } else {
-            printf("res[%d] = [REF: op=%lld range=%lld %lld : %lld %lld]\n", 
+            printf("res[%d] = [REF: op=%lld range=%lld %lld : %lld %lld]\n",
                     i, data[i].ref.op, data[i].ref.range.l.anchor, data[i].ref.range.l.offset, data[i].ref.range.r.anchor, data[i].ref.range.r.offset);
         }
     }
@@ -131,20 +131,20 @@ int main(int argc, char **argv) {
         printf("To get into editor, pass port via args\n");
         return 1;
     }
-    
+
     printf("Starting application...\n");
     Sleep(1000);
-    
+
     start_term(port);
 
     network_quit();
-    
+
     return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 typedef char *(*CmdFn)(char **args, u64 argc);
-typedef struct { 
+typedef struct {
     char *key;
     CmdFn fn;
     char *params;
@@ -377,8 +377,8 @@ static char *cmd_connect(char **args, u64 argc) {
         }
     };
     printf("Connecting to 127.0.0.1:%u...\n", target_port);
-    if (!network_open_connection(&addr)) {
-        printf("[Chat] Failed to start connection\n");
+    if (network_open_connection(&addr) != 0) {
+        printf("[ED] Failed to start connection\n");
     }
     return "";
 bad:
@@ -652,7 +652,7 @@ static void eval_expr(char *expr, char *out, size_t out_sz) {
         }
         return;
     }
-    
+
     if (*expr == '$' && expr[1] == '(') {
         char *pos = find_match(expr + 2, '(', ')');
         if (pos != expr + strlen(expr) - 1) {
@@ -743,7 +743,7 @@ static char *call_user_func(Command *c, char **args, u64 argc) {
 static const char *eval_stmt(char *stmt) {
     stmt = trim(stmt);
     if (!*stmt) return "";
-    
+
     char stmt_copy[1024];
     snprintf(stmt_copy, sizeof(stmt_copy), "%s", stmt);
 
@@ -771,7 +771,7 @@ static const char *eval_stmt(char *stmt) {
             return get_var(vname);
         }
     }
-    
+
     char raw_args[64][1024];
     char *args[64];
     u64 argc = 0;
@@ -944,7 +944,7 @@ void start_term(int port) {
         printf("ED/> ");
         fflush(stdout);
         if (!fgets(line, sizeof(line), stdin)) break;
-        
+
         char *trimmed = trim(line);
         bool is_assign = (*trimmed == '$' && strchr(trimmed, '=') != NULL);
 

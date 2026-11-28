@@ -12,7 +12,10 @@ void worker_thread(void *arg);
 #define is_local_task(id) (((id) & 0x8000000000000000ull) == 0)
 
 TaskId start_local_task(TaskFunction fn, void *arg, i64 priority);
+TaskId register_remote_task(void);
 void stop_local_task(TaskId id, u64 code);
+
+void remote_task_set_result(TaskId id, void *res);
 
 i64 local_task_get_anchor(TaskId id, i32 *is_ready);
 Stat *local_task_get_stat(TaskId id, i32 *is_ready);

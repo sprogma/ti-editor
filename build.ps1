@@ -36,13 +36,13 @@ function Build-Target {
 
     Write-Host "`n=== Building target: $Output ===" -Fore cyan
     $thd = $Threads ? @{ThrottleLimit=$Threads} : @{}
-    
+
     $b = $Files | % @thd -parallel {
         $n = rvpa $_ -RelativeBasePath $using:PSScriptRoot -Relative | % { $_ -replace "^\.(/|\\)" }
         $dst = "$using:PSScriptRoot/obj/$n.o"
         $dep = "$using:PSScriptRoot/obj/$n.d"
         $ext = [System.IO.Path]::GetExtension($n).ToLower()
-        
+
         $needBuild = $true
         if (Test-Path $dst) {
             $dstTime = (gi $dst).LastWriteTime
@@ -187,6 +187,7 @@ $BASE_FLAGS = @(
     "-D_CRT_SECURE_NO_WARNINGS"
     "-D_CRT_NONSTDC_NO_DEPRECATE"
     "-DQUIC_API_ENABLE_PREVIEW_FEATURES=1"
+    "-DNOMINMAX"
     "-Wall"
     "-Watomic-implicit-seq-cst"
     "-fms-extensions"

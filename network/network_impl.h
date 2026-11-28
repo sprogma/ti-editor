@@ -9,7 +9,6 @@
 #include <ds.h>
 #include <mp.h>
 
-
 STRUCT (Guid) {
     byte value[16];
 };
@@ -21,7 +20,7 @@ STRUCT (PeerStat) {
     double idle_power;
     u64 free_ram;
     u64 free_disk;
-};  
+};
 
 #define max_hops 5
 #define abf_size 1024
@@ -38,7 +37,7 @@ STRUCT (Peer) {
     HQUIC conn;
     _Atomic (Channel *) ctrl_stream;
     rwlock ctrl_stream_init;
-    
+
     peer_addr_t addr;
     bool is_incoming;
     _Atomic i32 is_connected;
@@ -75,7 +74,7 @@ extern struct NetworkContext {
     HQUIC server_cfg;
     HQUIC client_cfg;
     HQUIC listener;
-    
+
     net_on_message_fn on_message;
 
     u16 local_port;
@@ -94,7 +93,7 @@ extern struct NetworkContext {
     rwlock operation_lock;
 
     // guids
-    rwlock guid_lock;    
+    rwlock guid_lock;
     struct GuidKey {
         Guid key;
     } *guid_set;
@@ -113,7 +112,15 @@ extern struct NetworkContext {
     rwlock stat_local_lock;
     thread_t stat_thread;
     Time stat_share_interval;
-    
+
+    // tasks
+    struct GuidTaskKey {
+        Guid key;
+        u64 tasks_len;
+        TaskId *tasks;
+    } *task_events;
+    rwlock task_lock;
+
 } network_ctx;
 
 void shutdown_network_subsystem(void);
@@ -140,7 +147,7 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len);
 void send_request_operation(OperationId op_id, byte guid[16]);
 void share_statistic_worker(void *arg);
 
-bool has_or_remember_guid(Guid value); // return true if exists
+bool has_or_remember_guid(Guid value);
 
 bool ref_peer(Peer *peer);
 void unref_peer(Peer *peer);

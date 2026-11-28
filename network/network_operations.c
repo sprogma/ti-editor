@@ -43,8 +43,8 @@ void bloom_add(u64 *filter, u64 filter_size, u64 filter_arity, OperationId id) {
     }
 }
 
-void request_operation(OperationId op_id) { 
-    
+void request_operation(OperationId op_id) {
+
     rwl_write(&ctx.operation_lock);
     i64 pos = hmgeti(ctx.operation_events, op_id);
     if (pos == -1) {
@@ -56,10 +56,11 @@ void request_operation(OperationId op_id) {
 
     Guid guid;
     random_bytes(&guid, sizeof(guid));
+    set_guid_as_central(guid);
     send_request_operation(op_id, guid.value);
 }
 
-void send_request_operation(OperationId op_id, byte guid[16]) { 
+void send_request_operation(OperationId op_id, byte guid[16]) {
     // find peer which is responsible
     Peer **peers = NULL;
     rwl_read(&ctx.peers_lock);
@@ -78,7 +79,7 @@ void send_request_operation(OperationId op_id, byte guid[16]) {
         printf("request_operation failed: no peers\n");
         return;
     }
-    
+
     // work with peers
     i32 *hops = NULL;
     arrsetlen(hops, count);
@@ -141,6 +142,6 @@ void send_request_operation(OperationId op_id, byte guid[16]) {
 }
 
 void build_operation(OperationTypeId tid, OperationId op_id, void *data, u64 data_size) {
-    deserialize_operation(tid, op_id, data, data_size);    
+    deserialize_operation(tid, op_id, data, data_size);
 }
 

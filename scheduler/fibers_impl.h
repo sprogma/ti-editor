@@ -20,6 +20,8 @@
 STRUCT (FiberInfo) {
     void *rsp;
     _Atomic u64 pending_cancellation;
+    void *stack_base;
+    void *stack_size;
 };
 
 typedef enum : u64 {
@@ -39,12 +41,14 @@ STRUCT (WorkerContext) {
     u64 wait_count;
     TaskId current_id;
     FiberInfo *current;
+    bool finish_current;
 };
 
 extern _Thread_local WorkerContext tls_worker;
 
 // stack_mem = NULLPTR = allocate dynamic stack; if stack_mem == NULL, stack_size is not used
-i32 fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size, TaskFunction fn, void *arg);
+i32 fiber_init(FiberInfo *fib, void *stack_mem, size_t stack_size, TaskFunction fn, void *arg);
+void fiber_deinit(FiberInfo *fib);
 
 // cancel_cose must be non zero
 void fiber_cancel(FiberInfo *f, u64 cancel_code);

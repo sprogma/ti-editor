@@ -129,7 +129,7 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
     switch (event->Type) {
         case QUIC_CONNECTION_EVENT_CONNECTED: {
             atomic_store(&peer->is_connected, true);
-            
+
             if (!peer->is_incoming) {
                 Channel *ch = open_channel(peer, true);
                 if (!ch) {
@@ -137,7 +137,7 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
                     break;
                 }
                 atomic_store_explicit(&peer->ctrl_stream, ch, memory_order_release);
-                
+
                 ch->is_handshake_pending = true;
                 channel_send(ch, &ctx.self_id, sizeof(ctx.self_id), false);
             }
@@ -159,12 +159,12 @@ static QUIC_STATUS QUIC_API connection_callback(HQUIC connection, void *context,
             ch->is_framed = true;
             atomic_init(&ch->is_closed, false);
             atomic_init(&ch->refcount, 1);
-            
+
             if (peer->is_incoming) {
                 Channel *expected = NULL;
                 if (atomic_compare_exchange_strong(&peer->ctrl_stream, &expected, ch)) {
                     ref_channel(ch);
-                    
+
                     ch->is_handshake_pending = true;
                     channel_send(ch, &ctx.self_id, sizeof(ctx.self_id), false);
                 }
@@ -297,7 +297,7 @@ i32 init_network_subsystem(CoreConfig *cfg) {
 
     ctx.operation_events = NULL;
     rwl_init(&ctx.operation_lock);
-    
+
     ctx.guid_set = NULL;
     ctx.guid_buffer = NULL;
     ctx.guid_buffer_tail = 0;
@@ -305,13 +305,16 @@ i32 init_network_subsystem(CoreConfig *cfg) {
     ctx.guid_buffer_size = 0;
     ctx.guid_expiration_period = T_MS(get_one_int(cfg, "net.guid_expiration_ms", 10000));
     rwl_init(&ctx.guid_lock);
-    
+
     ctx.stat_running = 1;
     ctx.stat.idle_power = -1.0;
     ctx.stat.free_ram = -1;
     ctx.stat.free_disk = -1;
     ctx.stat_share_interval = T_MS(get_one_int(cfg, "net.stat_share_interval_ms", 500));
     rwl_init(&ctx.stat_local_lock);
+
+    ctx.task_events = NULL;
+    rwl_init(&ctx.task_lock);
 
     // TODO: use some device-based id?
     random_bytes(&ctx.self_id, sizeof(ctx.self_id));
@@ -360,7 +363,7 @@ i32 init_network_subsystem(CoreConfig *cfg) {
     ctx.on_message = on_incoming_message;
 
     thread_create(&ctx.stat_thread, share_statistic_worker, NULL);
-    
+
     printf("[Net] Network subsystem initialized\n");
     return 0;
 error:
@@ -400,11 +403,13 @@ void shutdown_network_subsystem(void) {
 
 Peer *open_connection(const peer_addr_t *addr) {
     if (!ctx.api || !ctx.client_cfg || !addr) {
+        printf("[Net] open_connection error: invalig arg\n");
         return NULL;
     }
 
     Peer *peer = calloc(1, sizeof(Peer));
     if (!peer) {
+        printf("[Net] open_connection error: peer allocation failed\n");
         return NULL;
     }
 
@@ -515,7 +520,7 @@ static void process_incoming_bytes(Channel *ch, const byte *data, u32 len) {
         } else if (ctx.on_message) {
             ctx.on_message(ch, payload, msg_len);
         }
-        
+
         ch->rx_offset += sizeof(u32) + msg_len;
     }
 
@@ -578,7 +583,7 @@ Channel *open_channel(Peer *peer, bool is_framed) {
     if (!ref_peer(peer)) {
         return NULL;
     }
-    
+
     Channel *ch = calloc(1, sizeof(Channel));
     if (!ch) {
         unref_peer(peer);
@@ -630,7 +635,7 @@ i32 channel_send(Channel *ch, const void *data, u32 len, bool finalizate) {
     if (!ref_channel(ch)) {
         return 1;
     }
-    
+
     u32 header_size = ch->is_framed ? sizeof(u32) : 0;
     u32 total_size  = header_size + len;
 
@@ -655,9 +660,9 @@ i32 channel_send(Channel *ch, const void *data, u32 len, bool finalizate) {
 
     QUIC_SEND_FLAGS flags = finalizate ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE;
     QUIC_STATUS status = ctx.api->StreamSend(ch->stream, &sctx->quic_buf, 1, flags, sctx);
-    
+
     unref_channel(ch);
-    
+
     if (QUIC_FAILED(status)) {
         printf("[Net] StreamSend failed: 0x%lx\n", (unsigned long)status);
         free(sctx);
@@ -703,7 +708,7 @@ void unref_peer(Peer *peer) {
     if (!peer) return;
     if (atomic_fetch_sub_explicit(&peer->refcount, 1, memory_order_release) == 1) {
         atomic_thread_fence(memory_order_acquire);
-        
+
         if (peer->addr.type == PEER_ADDR_DIRECT_IP) {
             printf("Free peer [%s:%d]\n", peer->addr.direct.ip, peer->addr.direct.port);
         } else {
@@ -714,7 +719,7 @@ void unref_peer(Peer *peer) {
             atomic_store_explicit(&peer->ctrl_stream, NULL, memory_order_relaxed);
         }
         // TODO: free peer
-        // TODO: before freeing we need to implement ref/unref in all places where peer is used, from begining to it's end...        
+        // TODO: before freeing we need to implement ref/unref in all places where peer is used, from begining to it's end...
         if (atomic_load(&peer->is_connected)) {
             // TODO: check consistency of is_connected flag, may be move it's setters inside register/unregister_peer?
             unregister_peer(peer);
@@ -745,7 +750,7 @@ void unref_channel(Channel *ch) {
     if (!ch) return;
     if (atomic_fetch_sub_explicit(&ch->refcount, 1, memory_order_release) == 1) {
         atomic_thread_fence(memory_order_acquire);
-        
+
         printf("Free channel [peer=%lld]\n", ch->peer->id);
         // TODO: free channel
         // TODO: before freeing we need to implement ref/unref in all places where channel is used, from begining to it's end...
@@ -774,7 +779,7 @@ Channel *get_control_channel_by_id(NetworkNode id) {
     return get_control_channel(peer);
 }
 
-void network_quit() {   
+void network_quit() {
     rwl_read(&ctx.peers_lock);
     for (u64 i = 0; i < hmlen(ctx.peers); ++i) {
         close_connection(ctx.peers[i].value, 0);

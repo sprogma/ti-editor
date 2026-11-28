@@ -12,6 +12,9 @@ STRUCT (Task) {
     FiberInfo *fiber;
     i64 priority;
 
+    _Atomic TaskStateType state;
+    void *result;
+
     WaitMode wait_mode;
     TaskId *wait_array;
     u64 wait_count;
@@ -23,20 +26,12 @@ STRUCT (Task) {
     _Atomic Time t_execution_wait;
 };
 
-STRUCT (TaskResult) {
-    TaskId key;
-    void *value;
-};
-
 typedef union {
     Task task;
     i64 next_free;
 } TaskItem;
 
 static struct {
-
-    rwlock results_lock;
-    TaskResult *results;
 
     rwlock lock;
 
@@ -142,6 +137,30 @@ static void enqueue_task(TaskId id) {
     rwl_unwrite(&ctx.lock);
 }
 
+TaskId register_remote_task(void) {
+    TaskId id = alloc_task(priority);
+
+    rwl_read(&ctx.lock);
+
+    Time now = get_time();
+
+    Task *task = &ctx.tasks[id >> 32].task;
+    *task = (Task) {
+        .fiber = NULL,
+        .priority = -1,
+        .t_start_time = now,
+        .t_last_event_time = now,
+        .t_execution_self = 0,
+        .t_execution_wait = 0,
+    };
+
+    rwl_unread(&ctx.lock);
+
+    printf("Task %lld was registrated\n", id);
+
+    return id;
+}
+
 TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
     TaskId id = alloc_task(priority);
 
@@ -153,6 +172,8 @@ TaskId start_local_task(TaskFunction fn, void *arg, i64 priority) {
     *task = (Task) {
         .fiber = malloc(sizeof(*task->fiber)),
         .priority = priority,
+        .state = TaskStateType_RunningLocal,
+        .result = NULL,
         .t_start_time = now,
         .t_last_event_time = now,
         .t_execution_self = 0,
@@ -257,11 +278,13 @@ void internal_fiber_on_return_c(void *res) {
 
     printf("Task %lld was finished\n", tls_worker.current_id);
 
-    rwl_write(&ctx.results_lock);
-    hmput(ctx.results, tls_worker.current_id, res);
-    rwl_unwrite(&ctx.results_lock);
+    rwl_read(&ctx.tasks_lock);
+    atomic_store_explicit(&ctx.tasks[tls_worker.current_id >> 32], TaskStateType_Finished, memory_order_release);
+    ctx.tasks[tls_worker.current_id >> 32].result = res;
+    ctx.tasks[tls_worker.current_id >> 32].fiber = NULL;
+    tls_worker.finish_current = true;
+    rwl_unread(&ctx.tasks_lock);
 
-    free_task(tls_worker.current_id);
     tls_worker.current_id = InvalidTaskId;
 
     internal_fiber_exit(&tls_worker);
@@ -269,6 +292,11 @@ void internal_fiber_on_return_c(void *res) {
 
 static void worker_loop(void) {
     assert(tls_worker.current_id == InvalidTaskId);
+    if (tls_worker.finish_current) {
+        assert(tls_worker.current != NULL);
+        fiber_deinit(tls_worker.current);
+        free(tls_worker.current);
+    }
     // entry for all fiber suspends, etc.
     while (1) {
         // find next task
@@ -397,28 +425,22 @@ API_METHOD u64 wait(TaskId *ids, u64 count) {
     return atomic_load_explicit(&tls_worker.current->pending_cancellation, memory_order_relaxed);
 }
 
-
 static void *local_task_get_result(TaskId id, i32 *is_ready) {
 
     rwl_read(&ctx.lock);
-    if (ctx.generations[id >> 32] == GEN(id)) {
+    if (ctx.generations[id >> 32] != GEN(id)) {
+        printf("Task id is invalid\n");
+        panic();
+    }
+    if (atomic_load_explicit(&ctx.tasks[id >> 32].state, memory_order_acquire) != TaskStateType_Finished) {
         if (is_ready) *is_ready = 0;
         rwl_unread(&ctx.lock);
         return NULL;
     }
+    void *res = ctx.tasks[id >> 32].result;
     rwl_unread(&ctx.lock);
 
-    rwl_write(&ctx.results_lock);
-    int pos = hmgeti(ctx.results, id);
-    void *res = NULL;
-    if (pos != -1) {
-        if (is_ready) *is_ready = 1;
-        res = ctx.results[pos].value;
-        hmdel(ctx.results, id);
-    } else {
-        if (is_ready) *is_ready = 0;
-    }
-    rwl_unwrite(&ctx.results_lock);
+    free_task(tls_worker.current_id);
     return res;
 }
 

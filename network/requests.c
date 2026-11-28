@@ -37,7 +37,7 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
             if (has_or_remember_guid(msg->guid)) {
                 return;
             }
-            
+
             net_log("%s:GET_OPERATION_BY_ID id=%llu", v, msg->op_id);
             // check if operation exists locally
             Operation op;
@@ -45,7 +45,7 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
             if (res == GET_OPERATION_SUCCESS) {
                 const IOperation *iop = get_operation_type(op.type);
                 assert(iop);
-                
+
                 u64 buffer_size = 1024;
                 void *buffer = malloc(buffer_size);
                 AnswerGetOperationById *ans = buffer;
@@ -62,6 +62,9 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
                 ans->tid = op.type,
                 ans->op_id = msg->op_id,
                 ans->data_size = used;
+
+                has_or_remember_guid(ans->guid);
+
                 Channel *ans_ch = open_channel(peer, true);
                 if (ans_ch == NULL) {
                     net_log("%s:GET_OPERATION_BY_ID id=%llu [channel creation failed]", v, msg->op_id);
@@ -89,14 +92,14 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
             }
         } break;
         case GET_OPERATION_BY_ID | ANSWER_MASK: {
-            AnswerGetOperationById *msg = (void *)data;            
+            AnswerGetOperationById *msg = (void *)data;
             if (has_or_remember_guid(msg->guid)) {
                 return;
             }
-            
+
             net_log("%s:GET_OPERATION_BY_ID:ANSWER type=%llu id=%llu size=%llu", v, msg->tid, msg->op_id, msg->data_size);
             OperationEvent *events;
-            
+
             rwl_write(&ctx.operation_lock);
             i64 pos = hmgeti(ctx.operation_events, msg->op_id);
             if (pos != -1) {
@@ -137,6 +140,29 @@ void on_incoming_message(Channel *ch, const byte *data, u32 len) {
             RequestShareStatistic *msg = (void *)data;
             peer->stat = msg->stat;
         } break;
+        case START_TASK: {
+            RequestStartTask *msg = (void *)data;
+            if (has_or_remember_guid(msg->guid)) {
+                return;
+            }
+
+            if (msg->node == ctx.self_id) {
+                TaskId *tasks = malloc(sizeof(*tasks) * msg->requests_count);
+                network_local_run(tasks, info, info_count);
+
+                AnswerStartTask *ans = malloc(sizeof(*ans) + sizeof(*ans->tasks) * msg->requests_count);
+            } else {
+                Guid guid;
+                random_bytes(&guid, sizeof(guid));
+                network_send_run(node, dest, info, info_count, guid);
+                has_or_remember_guid(guid);
+            }
+            if ()
+        } break;
+        case START_TASK | ANSWER: {
+            AnswerStartTask *msg = (void *)data;
+            ...
+        }
         default:
             printf("UNHANDLED REQUEST TYPE\n");
             panic();

@@ -41,7 +41,7 @@ static void internal_fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size
 // ---- external methods ---------------------------------
 
 // stack_mem = NULLPTR = allocate dynamic stack
-i32 fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size, TaskFunction fn, void *arg) {
+i32 fiber_init(FiberInfo *fib, void *stack_mem, size_t stack_size, TaskFunction fn, void *arg) {
 
     if (stack_mem == NULL) {
         stack_size = 64 * STACK_PAGE_SIZE;
@@ -54,15 +54,34 @@ i32 fiber_init(FiberInfo *f, void *stack_mem, size_t stack_size, TaskFunction fn
             return 1;
         }
 #endif
+
+        fib->stack_base = stack_mem;
+        fib->stack_size = stack_size;
+    } else {
+        fib->stack_base = NULL;
+        fib->stack_size = 0;
     }
 
-    if (stack_mem == NULL) {
+    if (stack_base == NULL || fib->stack_size == 0) {
         return 1;
     }
 
-    internal_fiber_init(f, stack_mem, stack_size, fn, arg);
+    assert(stack_size > 128);
+
+
+    internal_fiber_init(fib, stack_mem, stack_size, fn, arg);
 
     return 0;
+}
+
+void fiber_deinit(FiberInfo *fib) {
+    if (fib->stack_base) {
+#ifdef _WIN32
+        VirtualFree(fib->stack_base, 0, MEM_RELEASE);
+#else
+        munmap(fib->stack_base, fib->stack_size);
+#endif
+    }
 }
 
 void fiber_cancel(FiberInfo *fib, u64 cancel_code) {

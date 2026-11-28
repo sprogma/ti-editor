@@ -194,7 +194,7 @@ STRUCT (DataTaskResult) {
 
 // is ready returns 1 if task was really finished. owerwice res == NULL/0
 // signed distance
-CORE_API i64 task_get_anchor(TaskId id, i32 *is_ready); 
+CORE_API i64 task_get_anchor(TaskId id, i32 *is_ready);
 // result of calc
 CORE_API Stat *task_get_stat(TaskId id, i32 *is_ready);
 // get data. op_id can be InvalidOperation in some cases - but that is not error.
@@ -202,6 +202,22 @@ CORE_API DataTaskResult *task_get_data(TaskId id, i32 *is_ready);
 // safely frees remote and local segment from task_get_data
 CORE_API void task_unref_segment(DataTaskResult *result);
 
+typedef enum {
+    TaskStateType_RunningLocal, // this is local task
+    TaskStateType_WaitingAck, // task is initializating on another node, no ack was received
+    TaskStateType_RunningRemote, // task is running on another node
+    TaskStateType_Finished, // task data is available, waiting for task_get_* call to free them
+} TaskStateType;
+
+STRUCT (TaskState) {
+    TaskStateType state;
+    i64 priority;
+    Time start_time;
+    Time execution_self;
+    Time execution_wait;
+};
+// reads task state
+CORE_API void task_state(TaskId id, TaskState *state);
 
 // ---- networking ----------------------------------------------------------------
 
@@ -219,7 +235,7 @@ STRUCT (NetworkStat) {
 CORE_API NetworkNode network_get_self();
 CORE_API u64 network_list(NetworkNode *nodes, u64 max_count);
 CORE_API void network_stat(NetworkNode node, NetworkStat *stat);
-CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, u64 info_count);
+CORE_API void network_run(NetworkNode node, TaskId *dest, const RequestInfo *info, i64 info_count);
 CORE_API void network_stop(TaskId id, u64 cancel_code);
 
 // TODO: make this normal

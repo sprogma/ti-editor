@@ -5,7 +5,6 @@
 #include <types.h>
 
 #if defined(_WIN32) || defined(_WIN64)
-    #define NOMINMAX
     #define NOGDI
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
@@ -17,7 +16,7 @@
     #define rwl_unread(l) ReleaseSRWLockShared(l)
     #define rwl_unwrite(l) ReleaseSRWLockExclusive(l)
     #define rwl_destroy(l) /* none */
-    
+
     typedef HANDLE thread_t;
 #else
     #include <pthread.h>
@@ -29,7 +28,7 @@
     #define rwl_unread(l) pthread_rwlock_unlock(l)
     #define rwl_unwrite(l) pthread_rwlock_unlock(l)
     #define rwl_destroy(l) pthread_rwlock_destroy(l)
-    
+
     typedef pthread_t thread_t;
 #endif
 

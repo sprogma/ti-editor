@@ -12,6 +12,8 @@
 #include <msquic.h>
 
 #ifdef _WIN32
+    #define NOGDI
+    #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
 #else
     #include <stdio.h>
@@ -19,6 +21,31 @@
 #endif
 
 #define ctx network_ctx
+
+
+void network_stat(NetworkNode node, NetworkStat *stat) {
+    if (node == ctx.self_id) {
+        rwl_read(&ctx.stat_local_lock);
+        stat->bandwidth = -1;
+        stat->ping = -1;
+        stat->idle_power = ctx.stat.idle_power;
+        stat->free_ram = ctx.stat.free_ram;
+        stat->free_disk = ctx.stat.free_disk;
+        rwl_unread(&ctx.stat_local_lock);
+    } else {
+        rwl_read(&ctx.peers_lock);
+        ptrdiff_t tmp;
+        Peer *peer = hmget_ts(ctx.peers, node, tmp);
+        rwl_unread(&ctx.peers_lock);
+
+        fill_network_part(stat, peer);
+
+        stat->idle_power = peer->stat.idle_power;
+        stat->free_ram = peer->stat.free_ram;
+        stat->free_disk = peer->stat.free_disk;
+    }
+}
+
 
 static u64 get_free_ram(void) {
 #ifdef _WIN32
@@ -102,7 +129,7 @@ void share_statistic_worker(void *arg) {
                 .free_disk = free_disk,
             },
         };
-        
+
         Peer **peers = NULL;
         rwl_read(&ctx.peers_lock);
         i64 count = hmlen(ctx.peers);
@@ -116,18 +143,17 @@ void share_statistic_worker(void *arg) {
         rwl_unread(&ctx.peers_lock);
 
         count = arrlen(peers);
-        for (i64 i = 0; i < count; ++i) {    
+        for (i64 i = 0; i < count; ++i) {
             Channel *control = get_control_channel(peers[i]);
             if (control == NULL) {
                 continue;
             }
             channel_send(control, &req, sizeof(req), false);
         }
-        
+
         for (i64 i = 0; i < count; ++i) {
             unref_peer(peers[i]);
         }
         arrfree(peers);
     }
 }
-
